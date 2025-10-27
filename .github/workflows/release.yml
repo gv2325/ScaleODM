@@ -1,0 +1,36 @@
+name: 🚀 Build & Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write  # To add binaries to release
+  packages: write  # Required for nested job in image_build workflow
+
+jobs:
+  container-img:
+    uses: hotosm/gh-workflows/.github/workflows/image_build.yml@2.0.5
+    with:
+      build_target: release
+      image_name: "ghcr.io/${{ github.repository }}"
+
+  binaries:
+    runs-on: ubuntu-latest
+
+    container:
+      image: docker.io/goreleaser/goreleaser-cross:v1.25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Goreleaser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Required because of https://github.com/actions/checkout/issues/766
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          goreleaser release

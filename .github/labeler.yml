@@ -1,0 +1,22 @@
+bug:
+  # Branch starts with `fix` or has a `fix` in the name
+  - head-branch: ["^fix", "fix"]
+enhancement:
+  - head-branch:
+      ["^feature", "feature", "^feat", "feat", "^refactor", "refactor"]
+devops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - Dockerfile
+dependency:
+  - changed-files:
+      - any-glob-to-any-file:
+          - go.mod
+          - go.sum
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - mkdocs.yml
+          - README.md
