@@ -137,11 +137,3 @@ func getMap(m map[string]interface{}, key string) map[string]int {
 	}
 	return nil
 }
-
-// max helper
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -27,6 +27,17 @@ Autoscalers.
 It aims to provide the same API surface as NodeODM, while replacing
 both NodeODM and ClusterODM with a single, cloud-native control plane.
 
+> [!NOTE]
+> ScaleODM has no authentication mechanisms, and should not be exposed
+> publicly.
+>
+> Instead, your frontend connects to a backend. The backend then uses
+> `PyODM` or similar to connect to the internal network ScaleODM
+> instance.
+>
+> In order to federate multiple ScaleODM instances, a secure network
+> mesh should be made with tools like Tailscale.
+
 ## Rationale
 
 - ClusterODM --> NodeODM --> ODM are all fantastic tools, well tested
@@ -99,9 +110,11 @@ as an alternative processing API (with different requirements).
 | 🔄 | NodeODM-compatible API (submit, status, download) | v1 |
 | 🔄 | Using the same job statuses as NodeODM (QUEUED, RUNNING, FAILED, COMPLETED, CANCELED) | v1 |
 | 📅 | Accept GCP as part of job submission | v1 |
+| 📅 | Federation of ScaleODM instances and task distribution | v2 |
 | 📅 | Progress monitoring via API by hooking into the ODM container logs | v2 |
 | 📅 | Webhook triggering - send a notification to external system when complete | v2 |
 | 📅 | Post processing of the final artifacts - capability present in NodeODM | v3 |
+| 📅 | Consider a load balancing service across all ScaleODM instances in DB | v4 |
 | 📅 | Adding extra missing things from NodeODM implementation, if required* | v4 |
 
 <!-- prettier-ignore-end -->

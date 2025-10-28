@@ -26,6 +26,7 @@ import (
 	"github.com/hotosm/scaleodm/db"
 	"github.com/hotosm/scaleodm/queue"
 	"github.com/hotosm/scaleodm/worker"
+	"github.com/hotosm/scaleodm/config"
 )
 
 // Huma CLI Options
@@ -47,9 +48,11 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	// Validate env vars / settings
+	config.ValidateEnv()
+
 	// Database conn
-	connString := getDatabaseURL()
-	database, err := db.NewDB(connString)
+	database, err := db.NewDB(config.SCALEODM_DATABASE_URL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -74,7 +77,7 @@ func main() {
 	go healthChecker.Start(ctx, 30*time.Second)
 
 	// Enqueue test jobs
-	if getEnv("ENQUEUE_TEST_JOBS", "false") == "true" {
+	if config.ENQUEUE_TEST_JOBS == "true" {
 		log.Println("Enqueuing test jobs...")
 		if err := enqueueTestJobs(ctx, jobQueue); err != nil {
 			log.Printf("Failed to enqueue test jobs: %v", err)
@@ -118,21 +121,6 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	log.Println("Shutdown complete")
-}
-
-func getDatabaseURL() string {
-	if url := os.Getenv("SCALEODM_DATABASE_URL"); url != "" {
-		return url
-	}
-	log.Fatalf("SCALEODM_DATABASE_URL is required")
-	return ""
-}
-
-func getEnv(key, defaultValue string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultValue
 }
 
 func enqueueTestJobs(ctx context.Context, q *queue.Queue) error {
