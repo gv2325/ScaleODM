@@ -28,5 +28,6 @@ jobs:
       tag_override: ci
       compose_file: compose.yml
       compose_service: api
+      compose_command: test -timeout=2m -v ./...
       cache_extra_imgs: |
         "docker.io/postgis/postgis:17-3.5-alpine"

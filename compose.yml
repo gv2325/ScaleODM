@@ -36,9 +36,10 @@ services:
     # This allows usage of services running directly on the host machine
     extra_hosts:
       - host.docker.internal:host-gateway
-    entrypoint: go run main.go
+    entrypoint: go
+    command: run main.go
     restart: "unless-stopped"
-    # entrypoint: go test -timeout=2m -v ./...
+    # entrypoint: test -timeout=2m -v ./...
     # restart: "no"
 
   db:
