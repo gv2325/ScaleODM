@@ -8,7 +8,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/hotosm/scaleodm/config"
+	"github.com/hotosm/scaleodm/app/config"
 )
 
 // Get S3 credentials to send to a job

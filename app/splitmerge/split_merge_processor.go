@@ -9,7 +9,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/hotosm/scaleodm/worker"
+	"github.com/hotosm/scaleodm/app/worker"
 )
 
 // type ImageSplit struct {

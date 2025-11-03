@@ -62,15 +62,6 @@ services:
       timeout: 5s
       retries: 3
 
-  # In production this linked NodeODM instance is autoscaled by k8s
-  nodeodm:
-    image: opendronemap/nodeodm:3.5.5
-    container_name: nodeodm
-    networks:
-      - net
-    restart: on-failure:10
-    command: --parallel_queue_processing 1
-
   s3:
     image: "docker.io/minio/minio:RELEASE.2025-01-20T14-49-07Z"
     environment:

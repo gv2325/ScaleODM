@@ -12,7 +12,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 
-	"github.com/hotosm/scaleodm/queue"
+	"github.com/hotosm/scaleodm/app/queue"
 )
 
 // registerRoutes registers all API operations

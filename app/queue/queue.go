@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/hotosm/scaleodm/db"
+	"github.com/hotosm/scaleodm/app/db"
 )
 
 type Cluster struct {

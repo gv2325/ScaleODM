@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/hotosm/scaleodm/queue"
-	// "github.com/hotosm/scaleodm/splitmerge"
+	"github.com/hotosm/scaleodm/app/queue"
+	// "github.com/hotosm/scaleodm/app/splitmerge"
 )
 
 type ODMJobPayload struct {

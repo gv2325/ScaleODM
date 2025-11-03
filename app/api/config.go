@@ -11,7 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 
-	"github.com/hotosm/scaleodm/queue"
+	"github.com/hotosm/scaleodm/app/queue"
 )
 
 // Make the API and JobQueue available on each endpoint

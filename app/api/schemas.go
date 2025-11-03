@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/hotosm/scaleodm/queue"
+	"github.com/hotosm/scaleodm/app/queue"
 )
 
 // General
