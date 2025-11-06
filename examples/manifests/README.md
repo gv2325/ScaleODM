@@ -7,9 +7,13 @@
 
 ## Standard Processing
 
-Ensure Argo Workflows is installed first:
+1. Ensure Argo Workflows is installed first:
 https://argo-workflows.readthedocs.io/en/latest/installation
 
+2. Modify the YAML to your needs.
+
+3. Create the workflow:
+
 ```bash
-kubectl apply -f standard.yaml
+kubectl create -f standard.yaml
 ```

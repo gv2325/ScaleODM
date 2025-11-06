@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	// "k8s.io/client-go/kubernetes"
+	// "k8s.io/client-go/rest"
 
 	"github.com/hotosm/scaleodm/app/worker"
 )

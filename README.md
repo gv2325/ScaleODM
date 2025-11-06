@@ -108,12 +108,17 @@ as an alternative processing API (with different requirements).
 | Status | Feature | Release |
 |:------:|:-------:|:--------|
 | 🔄 | NodeODM-compatible API (submit, status, download) | v1 |
+| 🔄 | Processing pipeline using Argo workflows + ODM containers | v1 |
 | 🔄 | Using the same job statuses as NodeODM (QUEUED, RUNNING, FAILED, COMPLETED, CANCELED) | v1 |
-| 📅 | Accept GCP as part of job submission | v1 |
-| 📅 | Federation of ScaleODM instances and task distribution | v2 |
+| 🔄 | Env var config for API / pipeline | v1 |
+| 🔄 | Pre-processing to determine the required resource usage for the workflow (CPU / RAM allocated) | v1 |
+| 🔄 | Accept both zipped and unzipped imagery via S3 dir | v1 |
 | 📅 | Progress monitoring via API by hooking into the ODM container logs | v2 |
-| 📅 | Webhook triggering - send a notification to external system when complete | v2 |
-| 📅 | Post processing of the final artifacts - capability present in NodeODM | v3 |
+| 📅 | Split-merge workflow | v2 |
+| 📅 | Accept GCP as part of job submission | v2 |
+| 📅 | Federation of ScaleODM instances and task distribution | v3 |
+| 📅 | Webhook triggering - send a notification to external system when complete | v3 |
+| 📅 | Post processing of the final artifacts - capability present in NodeODM | v4 |
 | 📅 | Consider a load balancing service across all ScaleODM instances in DB | v4 |
 | 📅 | Adding extra missing things from NodeODM implementation, if required* | v4 |
 
