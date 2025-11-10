@@ -20,15 +20,15 @@ func main() {
 
 	// 1: Create and submit a workflow
 	fmt.Println("Creating ODM workflow...")
-	
+
 	// Define parameters
 	odmProjectID := "my-project-123"
 	readS3Path := "s3://drone-tm-public/dtm-data/projects/a93e99f5-5aab-4316-b6f8-0acd56975df3/0c6e7cf3-e58f-4664-8a13-fa27dcdbb7ad/images/"
 	writeS3Path := "s3://drone-tm-public/dtm-data/projects/a93e99f5-5aab-4316-b6f8-0acd56975df3/0c6e7cf3-e58f-4664-8a13-fa27dcdbb7ad/"
 	odmFlags := []string{"--fast-orthophoto"}
-	
+
 	config := workflows.NewDefaultODMConfig(odmProjectID, readS3Path, writeS3Path, odmFlags)
-	
+
 	// Optionally customize other config values
 	config.S3Region = "us-east-1"
 	config.ODMImage = "opendronemap/odm:latest"
@@ -80,7 +80,7 @@ func main() {
 // // Example: Create workflow and poll for completion
 // func CreateAndWaitForWorkflow() {
 // 	ctx := context.Background()
-	
+
 // 	client, err := workflows.NewClient("/home/coder/.kube/config", "argo")
 // 	if err != nil {
 // 		log.Fatalf("Failed to create client: %v", err)
@@ -116,7 +116,7 @@ func main() {
 
 // 			if phase == "Succeeded" {
 // 				fmt.Println("Workflow succeeded!")
-				
+
 // 				// Get final logs
 // 				fmt.Println("\nFinal logs:")
 // 				err = client.GetWorkflowLogs(ctx, wf.Name, os.Stdout)
@@ -126,7 +126,7 @@ func main() {
 // 				return
 // 			} else if phase == "Failed" || phase == "Error" {
 // 				fmt.Printf("Workflow failed with phase: %s\n", phase)
-				
+
 // 				// Get error logs
 // 				fmt.Println("\nError logs:")
 // 				err = client.GetWorkflowLogs(ctx, wf.Name, os.Stdout)
@@ -142,7 +142,7 @@ func main() {
 // // Example: Stream logs in real-time while workflow runs
 // func StreamLogsWhileRunning() {
 // 	ctx := context.Background()
-	
+
 // 	client, err := workflows.NewClient("/home/coder/.kube/config", "argo")
 // 	if err != nil {
 // 		log.Fatalf("Failed to create client: %v", err)

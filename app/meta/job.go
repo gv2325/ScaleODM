@@ -20,7 +20,7 @@ type JobMetadata struct {
 	WriteS3Path  string          `json:"write_s3_path"`
 	ODMFlags     json.RawMessage `json:"odm_flags"`
 	S3Region     string          `json:"s3_region"`
-	Status       string          `json:"status"`
+	JobStatus    string          `json:"job_status"`
 	CreatedAt    time.Time       `json:"created_at"`
 	StartedAt    *time.Time      `json:"started_at,omitempty"`
 	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
@@ -54,7 +54,7 @@ func (s *Store) CreateJob(ctx context.Context, workflowName, projectID, readPath
 	job := &JobMetadata{}
 	err = s.db.Pool.QueryRow(ctx, query, workflowName, projectID, readPath, writePath, flagsJSON, s3Region).Scan(
 		&job.ID, &job.WorkflowName, &job.ODMProjectID, &job.ReadS3Path,
-		&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.Status, &job.CreatedAt,
+		&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.JobStatus, &job.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create job metadata: %w", err)
@@ -80,7 +80,7 @@ func (s *Store) GetJob(ctx context.Context, workflowName string) (*JobMetadata, 
 
 	err := s.db.Pool.QueryRow(ctx, query, workflowName).Scan(
 		&job.ID, &job.WorkflowName, &job.ODMProjectID, &job.ReadS3Path,
-		&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.Status,
+		&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.JobStatus,
 		&job.CreatedAt, &startedAt, &completedAt, &errorMsg, &metadataJSON,
 	)
 
@@ -198,7 +198,7 @@ func (s *Store) ListJobs(ctx context.Context, status, projectID string, limit in
 
 		err := rows.Scan(
 			&job.ID, &job.WorkflowName, &job.ODMProjectID, &job.ReadS3Path,
-			&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.Status,
+			&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.JobStatus,
 			&job.CreatedAt, &startedAt, &completedAt, &errorMsg, &metadataJSON,
 		)
 		if err != nil {

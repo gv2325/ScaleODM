@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS scaleodm_clusters (
     last_heartbeat TIMESTAMPTZ  -- No default, we wait for a poll
 );
 
-CREATE TABLE scaleodm_job_metadata (
+CREATE TABLE IF NOT EXISTS scaleodm_job_metadata (
     id BIGSERIAL PRIMARY KEY,
     cluster_url TEXT NOT NULL,
     workflow_name TEXT NOT NULL UNIQUE,
@@ -15,7 +15,7 @@ CREATE TABLE scaleodm_job_metadata (
     job_type TEXT DEFAULT 'standard' CONSTRAINT job_type_check
         CHECK (job_type IN ('standard', 'splitmerge')),
     job_status TEXT DEFAULT 'pending' CONSTRAINT job_queue_status_check
-        CHECK (status IN ('pending', 'claimed', 'running', 'failed', 'completed')),
+        CHECK (job_status IN ('pending', 'claimed', 'running', 'failed', 'completed')),
     read_s3_path TEXT NOT NULL,
     write_s3_path TEXT NOT NULL,
     odm_flags JSONB,
@@ -35,7 +35,7 @@ BEGIN
         SELECT 1 FROM pg_constraint 
         WHERE conname = 'fk_job_queue_cluster'
     ) THEN
-        ALTER TABLE scaleodm_job_queue
+        ALTER TABLE scaleodm_job_metadata
             ADD CONSTRAINT fk_job_queue_cluster
             FOREIGN KEY (cluster_url)
             REFERENCES scaleodm_clusters (cluster_url)
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_workflow_name
 
 -- Index for listing jobs by status
 CREATE INDEX IF NOT EXISTS idx_job_status 
-    ON scaleodm_job_metadata(status, created_at DESC);
+    ON scaleodm_job_metadata(job_status, created_at DESC);
 
 -- Index for project lookups
 CREATE INDEX IF NOT EXISTS idx_project_id 

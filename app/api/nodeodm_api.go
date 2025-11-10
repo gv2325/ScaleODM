@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	wfv1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/danielgtaylor/huma/v2"
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
-	wfv1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 
 	"github.com/hotosm/scaleodm/app/workflows"
 )
@@ -160,7 +160,7 @@ func (a *API) registerNodeODMRoutes() {
 		if status == "" {
 			status = "Pending"
 		}
-		
+
 		var errorMsg *string
 		if wf.Status.Phase == wfv1.WorkflowFailed || wf.Status.Phase == wfv1.WorkflowError {
 			errorMsg = &wf.Status.Message
@@ -189,7 +189,7 @@ func (a *API) registerNodeODMRoutes() {
 		Summary:     "List all workflows",
 		Tags:        []string{"Jobs"},
 	}, func(ctx context.Context, input *struct {
-		Status    string `query:"status" doc:"Filter by workflow phase (Running, Succeeded, Failed, etc.)"`
+		JobStatus string `query:"job_status" doc:"Filter by workflow phase (Running, Succeeded, Failed, etc.)"`
 		ProjectID string `query:"project_id" doc:"Filter by ODM project ID"`
 		Limit     int    `query:"limit" doc:"Max results to return" default:"100"`
 	}) (*JobListResponse, error) {
@@ -204,7 +204,7 @@ func (a *API) registerNodeODMRoutes() {
 
 		for _, wf := range wfList.Items {
 			// Filter by status if provided
-			if input.Status != "" && string(wf.Status.Phase) != input.Status {
+			if input.JobStatus != "" && string(wf.Status.Phase) != input.JobStatus {
 				continue
 			}
 

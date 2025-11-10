@@ -77,7 +77,7 @@ package api
 // 		Tags:        []string{"Clusters"},
 // 	}, func(ctx context.Context, input *struct {
 // 		ClusterURL    string `path:"clusterID"`
-// 		ClusterStatus string `query:"status"`
+// 		ClusterStatus string `query:"cluster_status"`
 // 		Limit         int    `query:"limit" minimum:"1" maximum:"1000" default:"50"`
 // 	}) (*ClusterJobsResponse, error) {
 // 		jobs, err := a.queue.ListJobs(ctx, input.ClusterURL, input.ClusterStatus, "", input.Limit)
@@ -131,7 +131,7 @@ package api
 // func jobToResponse(j *meta.Job) *JobResponse {
 // 	resp := &JobResponse{
 // 		ID:        fmt.Sprintf("%d", j.ID),
-// 		JobStatus: string(j.Status),
+// 		JobStatus: string(j.JobStatus),
 // 		CreatedAt: j.CreatedAt,
 // 		Metadata:  make(map[string]interface{}),
 // 	}

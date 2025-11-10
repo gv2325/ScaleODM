@@ -66,7 +66,7 @@ func (s *Store) GetClusterCapacity(ctx context.Context, clusterID string) (maxJo
 	query := `
 		SELECT c.max_concurrent_jobs, COUNT(j.id) AS active_jobs
 		FROM scaleodm_clusters c
-		LEFT JOIN scaleodm_job_queue j ON j.cluster_url = c.cluster_url AND j.status IN ('claimed', 'running')
+		LEFT JOIN scaleodm_job_metadata j ON j.cluster_url = c.cluster_url AND j.status IN ('claimed', 'running')
 		WHERE c.cluster_url = $1
 		GROUP BY c.max_concurrent_jobs
 	`
