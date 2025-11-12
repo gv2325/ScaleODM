@@ -16,6 +16,8 @@ services:
       s3:
         condition: service_healthy
     env_file: .env
+    environment:
+      KUBECONFIG_PATH: /root/.kube/config
     volumes:
       # Mount local files
       - ./go.mod:/code/go.mod:ro
@@ -28,6 +30,7 @@ services:
       - ./app/meta:/code/app/meta:ro
       - ./app/s3:/code/app/s3:ro
       - ./app/workflows:/code/app/workflows:ro
+      - $HOME/.kube/config:/root/.kube/config
     ports:
       - "8080:8080"
     networks:

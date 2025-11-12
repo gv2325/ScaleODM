@@ -14,6 +14,8 @@ import (
 	wfv1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	workflowclient "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 	apiv1 "k8s.io/api/core/v1"
+
+	"github.com/hotosm/scaleodm/app/config"
 )
 
 // Client wraps the Argo Workflows client and Kubernetes client
@@ -80,7 +82,7 @@ func NewDefaultODMConfig(odmProjectID, readS3Path, writeS3Path string, odmFlags 
 		S3Region:       "us-east-1",
 		ServiceAccount: "argo-odm",
 		RcloneImage:    "docker.io/rclone/rclone:1",
-		ODMImage:       "opendronemap/odm:latest",
+		ODMImage:       config.SCALEODM_ODM_IMAGE,
 	}
 }
 

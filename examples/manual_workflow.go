@@ -29,9 +29,8 @@ func main() {
 
 	config := workflows.NewDefaultODMConfig(odmProjectID, readS3Path, writeS3Path, odmFlags)
 
-	// Optionally customize other config values
+	// Manually set region
 	config.S3Region = "us-east-1"
-	config.ODMImage = "opendronemap/odm:latest"
 
 	wf, err := client.CreateODMWorkflow(ctx, config)
 	if err != nil {

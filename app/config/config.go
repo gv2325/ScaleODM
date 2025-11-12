@@ -8,6 +8,11 @@ import (
 	"os"
 )
 
+var SCALEODM_ODM_IMAGE = cmp.Or(
+	os.Getenv("SCALEODM_ODM_IMAGE"),
+	"docker.io/opendronemap/odm:latest",
+)
+
 var SCALEODM_DATABASE_URL = cmp.Or(
 	os.Getenv("SCALEODM_DATABASE_URL"),
 	"",
