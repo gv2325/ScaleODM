@@ -36,13 +36,13 @@ type ClusterStatusResponse struct {
 	} `json:"body"`
 }
 
-type ClusterJobsResponse struct {
-	Body struct {
-		ClusterURL string        `json:"cluster_url"`
-		Jobs       []JobResponse `json:"jobs"`
-		Total      int           `json:"total"`
-	} `json:"body"`
-}
+// type ClusterJobsResponse struct {
+// 	Body struct {
+// 		ClusterURL string        `json:"cluster_url"`
+// 		Jobs       []JobResponse `json:"jobs"`
+// 		Total      int           `json:"total"`
+// 	} `json:"body"`
+// }
 
 type CapacityUpdateRequest struct {
 	MaxConcurrentJobs int `json:"max_concurrent_jobs" minimum:"1" example:"10"`
