@@ -56,17 +56,13 @@ func (db *DB) InitSchema(ctx context.Context) error {
 	return err
 }
 
-// InitSchema creates the required tables and indexes
-func (db *DB) InitLocalClusterRecord(ctx context.Context) error {
-	// FIXME consider setting via env var?
-	clusterUrl := "http://localhost:8080"
-
+// InitLocalClusterRecord creates the local cluster record if it doesn't exist
+func (db *DB) InitLocalClusterRecord(ctx context.Context, clusterURL string) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO scaleodm_clusters
-			(cluster_url)
-		VALUES
-			($1);
-	`, clusterUrl)
+		INSERT INTO scaleodm_clusters (cluster_url, max_concurrent_jobs, priority_weighting, last_heartbeat)
+		VALUES ($1, 10, 10, NOW())
+		ON CONFLICT (cluster_url) DO NOTHING
+	`, clusterURL)
 	return err
 }
 

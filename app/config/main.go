@@ -55,6 +55,11 @@ var ENQUEUE_TEST_JOBS = cmp.Or(
 	"false",
 )
 
+var SCALEODM_CLUSTER_URL = cmp.Or(
+	os.Getenv("SCALEODM_CLUSTER_URL"),
+	"http://localhost:31100",
+)
+
 func ValidateEnv() {
 	required := []struct {
 		val  string
@@ -62,13 +67,16 @@ func ValidateEnv() {
 	}{
 		{SCALEODM_DATABASE_URL, "SCALEODM_DATABASE_URL"},
 		{SCALEODM_S3_ENDPOINT, "SCALEODM_S3_ENDPOINT"},
-		{SCALEODM_S3_ACCESS_KEY, "SCALEODM_S3_ACCESS_KEY"},
-		{SCALEODM_S3_SECRET_KEY, "SCALEODM_S3_SECRET_KEY"},
 	}
 
 	for _, envVar := range required {
 		if envVar.val == "" {
 			log.Fatalf("%s is required", envVar.name)
 		}
+	}
+
+	// S3 credentials are optional - can use public buckets or provide via API
+	if SCALEODM_S3_ACCESS_KEY == "" || SCALEODM_S3_SECRET_KEY == "" {
+		log.Println("Warning: SCALEODM_S3_ACCESS_KEY and SCALEODM_S3_SECRET_KEY not set. Public bucket access will be attempted if no credentials provided via API.")
 	}
 }

@@ -37,7 +37,7 @@ func NewStore(db *db.DB) *Store {
 }
 
 // CreateJob records a new job metadata entry
-func (s *Store) CreateJob(ctx context.Context, workflowName, projectID, readPath, writePath string, odmFlags []string, s3Region string) (*JobMetadata, error) {
+func (s *Store) CreateJob(ctx context.Context, clusterURL, workflowName, projectID, readPath, writePath string, odmFlags []string, s3Region string) (*JobMetadata, error) {
 	flagsJSON, err := json.Marshal(odmFlags)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal odm_flags: %w", err)
@@ -45,14 +45,14 @@ func (s *Store) CreateJob(ctx context.Context, workflowName, projectID, readPath
 
 	query := `
 		INSERT INTO scaleodm_job_metadata 
-		(workflow_name, odm_project_id, read_s3_path, write_s3_path, odm_flags, s3_region)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		(cluster_url, workflow_name, odm_project_id, read_s3_path, write_s3_path, odm_flags, s3_region)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, workflow_name, odm_project_id, read_s3_path, write_s3_path, 
-		          odm_flags, s3_region, status, created_at
+		          odm_flags, s3_region, job_status, created_at
 	`
 
 	job := &JobMetadata{}
-	err = s.db.Pool.QueryRow(ctx, query, workflowName, projectID, readPath, writePath, flagsJSON, s3Region).Scan(
+	err = s.db.Pool.QueryRow(ctx, query, clusterURL, workflowName, projectID, readPath, writePath, flagsJSON, s3Region).Scan(
 		&job.ID, &job.WorkflowName, &job.ODMProjectID, &job.ReadS3Path,
 		&job.WriteS3Path, &job.ODMFlags, &job.S3Region, &job.JobStatus, &job.CreatedAt,
 	)
@@ -67,7 +67,7 @@ func (s *Store) CreateJob(ctx context.Context, workflowName, projectID, readPath
 func (s *Store) GetJob(ctx context.Context, workflowName string) (*JobMetadata, error) {
 	query := `
 		SELECT id, workflow_name, odm_project_id, read_s3_path, write_s3_path,
-		       odm_flags, s3_region, status, created_at, started_at, completed_at,
+		       odm_flags, s3_region, job_status, created_at, started_at, completed_at,
 		       error_message, metadata
 		FROM scaleodm_job_metadata
 		WHERE workflow_name = $1
@@ -108,16 +108,17 @@ func (s *Store) GetJob(ctx context.Context, workflowName string) (*JobMetadata, 
 }
 
 // UpdateJobStatus updates the job status from workflow phase
+// status should be one of: 'pending', 'claimed', 'running', 'failed', 'completed'
 func (s *Store) UpdateJobStatus(ctx context.Context, workflowName, status string, errorMsg *string) error {
 	query := `
 		UPDATE scaleodm_job_metadata
-		SET status = $2,
+		SET job_status = $2,
 		    started_at = CASE 
-		        WHEN $2 = 'Running' AND started_at IS NULL THEN NOW()
+		        WHEN $2 = 'running' AND started_at IS NULL THEN NOW()
 		        ELSE started_at
 		    END,
 		    completed_at = CASE 
-		        WHEN $2 IN ('Succeeded', 'Failed', 'Error') AND completed_at IS NULL THEN NOW()
+		        WHEN $2 IN ('completed', 'failed') AND completed_at IS NULL THEN NOW()
 		        ELSE completed_at
 		    END,
 		    error_message = $3
@@ -129,6 +130,22 @@ func (s *Store) UpdateJobStatus(ctx context.Context, workflowName, status string
 		return fmt.Errorf("failed to update job status: %w", err)
 	}
 	return nil
+}
+
+// MapArgoPhaseToJobStatus converts Argo workflow phase to database job status
+func MapArgoPhaseToJobStatus(phase string) string {
+	switch phase {
+	case "Pending":
+		return "pending"
+	case "Running":
+		return "running"
+	case "Succeeded":
+		return "completed"
+	case "Failed", "Error":
+		return "failed"
+	default:
+		return "pending"
+	}
 }
 
 // UpdateJobMetadata stores additional workflow metadata
@@ -155,7 +172,7 @@ func (s *Store) UpdateJobMetadata(ctx context.Context, workflowName string, meta
 func (s *Store) ListJobs(ctx context.Context, status, projectID string, limit int) ([]*JobMetadata, error) {
 	query := `
 		SELECT id, workflow_name, odm_project_id, read_s3_path, write_s3_path,
-		       odm_flags, s3_region, status, created_at, started_at, completed_at,
+		       odm_flags, s3_region, job_status, created_at, started_at, completed_at,
 		       error_message, metadata
 		FROM scaleodm_job_metadata
 		WHERE 1=1
@@ -165,7 +182,7 @@ func (s *Store) ListJobs(ctx context.Context, status, projectID string, limit in
 
 	if status != "" {
 		argCount++
-		query += fmt.Sprintf(" AND status = $%d", argCount)
+		query += fmt.Sprintf(" AND job_status = $%d", argCount)
 		args = append(args, status)
 	}
 

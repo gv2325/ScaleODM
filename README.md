@@ -138,41 +138,159 @@ Details to come once API is stabilised.
 
 ### S3 Usage
 
-- Setting the access / secret key will pass these credentials to all
-  jobs. This isn't the most secure setup.
-- A better option is to set the `SCALEODM_S3_STS_ROLE_ARN` variable too.
-- The user for the access/secret key pair must have permission to
-  generate temporary security credentials.
-- The role of the provided ARN will be assumed for the temp creds
-  (24hr access), so be sure this user has permission to read/write
-  to the required S3 buckets with imagery.
+ScaleODM supports two modes for S3 access:
 
-  Allowing to assume any role (*) is less secure than specifying
-  an exact role that can be assumed, but more restrictive:
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": "sts:AssumeRole",
-        "Resource": "*"
-      }
-    ]
-  }
-  ```
+#### Static Credentials (Simple, Less Secure)
+
+- Set `SCALEODM_S3_ACCESS_KEY` and `SCALEODM_S3_SECRET_KEY` environment variables.
+- These credentials are passed directly to all workflow jobs.
+- **Note:** This is less secure as credentials are stored in the cluster.
+
+#### STS Temporary Credentials (Recommended)
+
+For better security, use AWS STS to generate temporary credentials per job:
+
+1. **Set environment variables:**
+   ```bash
+   SCALEODM_S3_ACCESS_KEY=<your-iam-user-access-key>
+   SCALEODM_S3_SECRET_KEY=<your-iam-user-secret-key>
+   SCALEODM_S3_STS_ROLE_ARN=arn:aws:iam::ACCOUNT_ID:role/scaleodm-workflow-role
+   SCALEODM_S3_STS_ENDPOINT=  # Optional: defaults to https://sts.{region}.amazonaws.com
+   ```
+
+2. **IAM User Permissions** (for the user specified in `SCALEODM_S3_ACCESS_KEY`):
+
+   The IAM user must have permission to assume the STS role:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "sts:AssumeRole",
+         "Resource": "arn:aws:iam::ACCOUNT_ID:role/scaleodm-workflow-role"
+       }
+     ]
+   }
+   ```
+
+   **Important:** The `Resource` must match the exact role ARN specified in `SCALEODM_S3_STS_ROLE_ARN`. Using `"Resource": "*"` is less secure but allows assuming any role.
+
+3. **IAM Role Trust Policy** (for the role specified in `SCALEODM_S3_STS_ROLE_ARN`):
+
+   The role must trust the IAM user:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Principal": {
+           "AWS": "arn:aws:iam::ACCOUNT_ID:user/your-scaleodm-user"
+         },
+         "Action": "sts:AssumeRole"
+       }
+     ]
+   }
+   ```
+
+4. **IAM Role Permissions** (for the role):
+
+   The role must have permissions to read/write to your S3 buckets:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": [
+           "s3:GetObject",
+           "s3:PutObject",
+           "s3:DeleteObject",
+           "s3:ListBucket"
+         ],
+         "Resource": [
+           "arn:aws:s3:::your-bucket-name/*",
+           "arn:aws:s3:::your-bucket-name"
+         ]
+       }
+     ]
+   }
+   ```
+
+**How it works:**
+- When a job is submitted, ScaleODM uses the IAM user credentials to call `sts:AssumeRole` on the specified role.
+- Temporary credentials (valid for 24 hours) are generated and injected into the workflow.
+- Each workflow job uses these temporary credentials to access S3.
+- Credentials automatically expire, reducing security risk.
+
+**Troubleshooting:**
+
+If you see errors like:
+```
+User: arn:aws:iam::ACCOUNT_ID:user/your-user is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::ACCOUNT_ID:role/your-role
+```
+
+Check:
+1. The IAM user has `sts:AssumeRole` permission for the role ARN.
+2. The role's trust policy allows the IAM user to assume it.
+3. The `SCALEODM_S3_STS_ROLE_ARN` is set to a **role ARN** (not a user ARN).
 
 ## Development
 
 - Binary and container image distribution is automated on new **release**.
 
-### Run The Tests
+### Local Development Setup
 
-The test suite depends on a database, so the most convenient way is to run
-via docker.
+For local development and testing, ScaleODM uses a Talos Kubernetes cluster
+created via `talosctl cluster create`. This provides a real Kubernetes
+environment for testing Argo Workflows integration.
 
-There is a pre-configured `compose.yml` for testing:
+**Quick start:**
 
 ```bash
-docker compose run --rm scaleodm
+# Setup Talos cluster and start all services
+just dev
+```
+
+This will:
+1. Create a local Talos Kubernetes cluster
+2. Install Argo Workflows
+3. Start PostgreSQL, MinIO, and the ScaleODM API
+
+**Manual setup:**
+
+```bash
+# 1. Setup Talos cluster (one-time)
+just test-cluster-init
+
+# 2. Start compose services
+just start
+```
+
+**Testing workflow:**
+
+```bash
+just test-cluster-init  # Setup cluster
+just test              # Run tests
+just test-cluster-destroy  # Clean up
+```
+
+See [compose.README.md](./compose.README.md) for detailed setup instructions.
+
+**Prerequisites:**
+- `talosctl` installed ([installation guide](https://www.talos.dev/latest/introduction/install/))
+- Docker running
+- At least 8GB free memory
+
+### Run The Tests
+
+The test suite depends on a database and Kubernetes cluster:
+
+```bash
+# With Talos cluster already running
+just test
+
+# Or manually
+docker compose run --rm api go test -timeout=2m -v ./...
 ```

@@ -12,7 +12,7 @@ Returns information about the node including queue count and engine version.
 **Response:**
 ```json
 {
-  "version": "2.2.1",
+  "version": "0.1.0",
   "taskQueueCount": 5,
   "maxImages": null,
   "engine": "odm",
@@ -58,7 +58,7 @@ Creates a new processing task.
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8080/task/new \
+curl -X POST http://localhost:31100/task/new \
   -F "name=my-project" \
   -F "zipurl=s3://mybucket/drone-images/" \
   -F 'options=[{"name":"fast-orthophoto","value":true},{"name":"dsm","value":true}]'
@@ -239,7 +239,7 @@ s3.upload_file('img1.jpg', 'mybucket', 'project/input/img1.jpg')
 
 # Create task pointing to S3
 response = requests.post(
-    'http://scaleodm:8080/task/new',
+    'http://scaleodm:31100/task/new',
     data={
         'zipurl': 's3://mybucket/project/input/',
         'options': json.dumps([{"name": "dsm", "value": true}])
@@ -260,7 +260,7 @@ with open('results.zip', 'wb') as f:
 **After (ScaleODM):**
 ```python
 # Get task info to determine S3 path
-info = requests.get(f'http://scaleodm:8080/task/{uuid}/info').json()
+info = requests.get(f'http://scaleodm:31100/task/{uuid}/info').json()
 
 # Download from S3
 s3.download_file('mybucket', 'project/output/orthophoto.tif', 'orthophoto.tif')
@@ -289,10 +289,10 @@ spec:
       - name: scaleodm
         image: ghcr.io/hotosm/scaleodm:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 31100
         env:
         - name: SCALEODM_DATABASE_URL
-          value: "postgresql://user:pass@postgres:5432/scaleodm"
+          value: "postgresql://user:pass@localhost:5432/scaleodm"
         - name: K8S_NAMESPACE
           value: "default"
         - name: SCALEODM_ODM_IMAGE
@@ -307,31 +307,31 @@ spec:
     app: scaleodm
   ports:
   - port: 80
-    targetPort: 8080
+    targetPort: 31100
 ```
 
 ## Testing NodeODM Compatibility
 
 ```bash
 # Test /info endpoint
-curl http://localhost:8080/info
+curl http://localhost:31100/info
 
 # Create a task
-curl -X POST http://localhost:8080/task/new \
+curl -X POST http://localhost:31100/task/new \
   -F "zipurl=s3://test-bucket/images/" \
   -F 'options=[{"name":"fast-orthophoto","value":true}]'
 
 # Get task info
-curl http://localhost:8080/task/{uuid}/info
+curl http://localhost:31100/task/{uuid}/info
 
 # Get task output
-curl http://localhost:8080/task/{uuid}/output
+curl http://localhost:31100/task/{uuid}/output
 
 # List all tasks
-curl http://localhost:8080/task/list
+curl http://localhost:31100/task/list
 
 # Cancel a task
-curl -X POST http://localhost:8080/task/cancel \
+curl -X POST http://localhost:31100/task/cancel \
   -H "Content-Type: application/json" \
   -d '{"uuid": "odm-pipeline-abc123"}'
 ```

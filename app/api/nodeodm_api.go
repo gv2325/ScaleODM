@@ -14,6 +14,7 @@ import (
 	_ "github.com/danielgtaylor/huma/v2/formats/cbor"
 
 	"github.com/hotosm/scaleodm/app/config"
+	"github.com/hotosm/scaleodm/app/s3"
 	"github.com/hotosm/scaleodm/app/workflows"
 )
 
@@ -68,15 +69,15 @@ type TaskOption struct {
 
 type InfoResponse struct {
 	Body struct {
-		Version           string `json:"version" doc:"Current API version"`
-		TaskQueueCount    int    `json:"taskQueueCount" doc:"Number of tasks in queue"`
-		MaxImages         *int   `json:"maxImages" doc:"Max images allowed (null for unlimited)"`
-		MaxParallelTasks  int    `json:"maxParallelTasks,omitempty" doc:"Max parallel tasks"`
-		Engine            string `json:"engine" doc:"Processing engine identifier"`
-		EngineVersion     string `json:"engineVersion" doc:"Engine version"`
-		AvailableMemory   *int64 `json:"availableMemory,omitempty" doc:"Available RAM in bytes"`
-		TotalMemory       *int64 `json:"totalMemory,omitempty" doc:"Total RAM in bytes"`
-		CPUCores          int    `json:"cpuCores,omitempty" doc:"Number of CPU cores"`
+		Version          string `json:"version" doc:"Current API version"`
+		TaskQueueCount   int    `json:"taskQueueCount" doc:"Number of tasks in queue"`
+		MaxImages        *int   `json:"maxImages" doc:"Max images allowed (null for unlimited)"`
+		MaxParallelTasks int    `json:"maxParallelTasks,omitempty" doc:"Max parallel tasks"`
+		Engine           string `json:"engine" doc:"Processing engine identifier"`
+		EngineVersion    string `json:"engineVersion" doc:"Engine version"`
+		AvailableMemory  *int64 `json:"availableMemory,omitempty" doc:"Available RAM in bytes"`
+		TotalMemory      *int64 `json:"totalMemory,omitempty" doc:"Total RAM in bytes"`
+		CPUCores         int    `json:"cpuCores,omitempty" doc:"Number of CPU cores"`
 	}
 }
 
@@ -86,6 +87,39 @@ type OptionResponse struct {
 	Value  string `json:"value" doc:"Default value"`
 	Domain string `json:"domain" doc:"Valid range of values"`
 	Help   string `json:"help" doc:"Description"`
+}
+
+// TaskNewRequest is the request struct for POST /task/new
+// It supports both form-encoded and JSON requests
+type TaskNewRequest struct {
+	Name               string `json:"name" form:"name" doc:"Task name (optional)"`
+	Options            string `json:"options" form:"options" doc:"JSON array of processing options"`
+	Webhook            string `json:"webhook" form:"webhook" doc:"Webhook URL (optional)"`
+	SkipPostProcessing bool   `json:"skipPostProcessing" form:"skipPostProcessing" doc:"Skip point cloud tiles generation"`
+	Outputs            string `json:"outputs" form:"outputs" doc:"JSON array of output paths to include"`
+	ZipURL             string `json:"zipurl" form:"zipurl" doc:"URL of zip file containing images (deprecated, use readS3Path)"`
+	ReadS3Path         string `json:"readS3Path" form:"readS3Path" doc:"S3 path (s3://bucket/path) to read imagery from"`
+	WriteS3Path        string `json:"writeS3Path" form:"writeS3Path" doc:"S3 path (s3://bucket/path) to write final products to"`
+	S3AccessKeyID      string `json:"s3AccessKeyID" form:"s3AccessKeyID" doc:"S3 access key ID (optional, for authenticated buckets)"`
+	S3SecretAccessKey  string `json:"s3SecretAccessKey" form:"s3SecretAccessKey" doc:"S3 secret access key (optional, for authenticated buckets)"`
+	S3SessionToken     string `json:"s3SessionToken" form:"s3SessionToken" doc:"S3 session token (optional, for STS credentials)"`
+	S3Region           string `json:"s3Region" form:"s3Region" doc:"S3 region (default: us-east-1)"`
+	DateCreated        int64  `json:"dateCreated" form:"dateCreated" doc:"Override creation timestamp"`
+}
+
+// NewTaskNewRequest creates a new TaskNewRequest with default values
+func NewTaskNewRequest() *TaskNewRequest {
+	return &TaskNewRequest{
+		SkipPostProcessing: false,
+		Outputs:            "[]",
+		Webhook:            "",
+		ZipURL:             "",
+		S3Region:           "us-east-1",
+		S3AccessKeyID:      "",
+		S3SecretAccessKey:  "",
+		S3SessionToken:     "",
+		DateCreated:        time.Now().Unix(),
+	}
 }
 
 type Response struct {
@@ -101,7 +135,7 @@ type ErrorResponse struct {
 
 // registerNodeODMRoutes registers NodeODM-compatible API routes
 func (a *API) registerNodeODMRoutes() {
-	
+
 	// GET /info - Server information
 	huma.Register(a.api, huma.Operation{
 		OperationID: "info-get",
@@ -124,12 +158,12 @@ func (a *API) registerNodeODMRoutes() {
 		}
 
 		resp := &InfoResponse{}
-		resp.Body.Version = "2.2.1" // Match NodeODM version
+		resp.Body.Version = "0.1.0" // The ScaleODM version (normally the NodeODM version)
 		resp.Body.TaskQueueCount = queueCount
 		resp.Body.MaxImages = nil // Unlimited
 		resp.Body.Engine = "odm"
 		resp.Body.EngineVersion = config.SCALEODM_ODM_IMAGE
-		
+
 		return resp, nil
 	})
 
@@ -181,7 +215,7 @@ func (a *API) registerNodeODMRoutes() {
 				Help:   "DEM resolution in cm/pixel",
 			},
 		}
-		
+
 		return &struct{ Body []OptionResponse }{Body: options}, nil
 	})
 
@@ -196,15 +230,7 @@ func (a *API) registerNodeODMRoutes() {
 	}, func(ctx context.Context, input *struct {
 		Token   string `query:"token" doc:"Authentication token (optional)"`
 		SetUUID string `header:"set-uuid" doc:"Optional UUID to use for this task"`
-		Body    struct {
-			Name               string `form:"name" doc:"Task name (optional)"`
-			Options            string `form:"options" doc:"JSON array of processing options"`
-			Webhook            string `form:"webhook" doc:"Webhook URL (optional)"`
-			SkipPostProcessing bool   `form:"skipPostProcessing" doc:"Skip point cloud tiles generation"`
-			Outputs            string `form:"outputs" doc:"JSON array of output paths to include"`
-			ZipURL             string `form:"zipurl" doc:"URL of zip file containing images"`
-			DateCreated        int64  `form:"dateCreated" doc:"Override creation timestamp"`
-		}
+		Body    TaskNewRequest
 	}) (*TaskNewResponse, error) {
 		req := input.Body
 
@@ -215,7 +241,7 @@ func (a *API) registerNodeODMRoutes() {
 			if err := json.Unmarshal([]byte(req.Options), &options); err != nil {
 				return nil, huma.NewError(400, "Invalid options JSON", err)
 			}
-			
+
 			// Convert options to ODM flags
 			for _, opt := range options {
 				flag := fmt.Sprintf("--%s", opt.Name)
@@ -233,32 +259,44 @@ func (a *API) registerNodeODMRoutes() {
 			odmFlags = []string{"--fast-orthophoto"}
 		}
 
-		if req.ZipURL == "" {
-			return nil, huma.NewError(400, "zipurl is required (must be S3 path or https zip)")
-		}
-
-		// Normalize and detect S3 prefix vs zip file
-		isS3Prefix := strings.HasPrefix(req.ZipURL, "s3://")
-		isHTTPZip := strings.HasPrefix(req.ZipURL, "http://") || strings.HasPrefix(req.ZipURL, "https://")
-
-		if !isS3Prefix && !isHTTPZip {
-			return nil, huma.NewError(400, "zipurl must be an s3://... prefix or a http(s) zip URL")
-		}
-
-		// FIXME we should accept a writeS3Path param that:
-		// - if not specified, e write to /output inside the readS3Path
-		// - if specified, we write to the specified path
-		// FIXME the code below to match
-		// If S3 prefix, ensure trailing slash and set write path
+		// Determine read and write paths
 		var readPath, writePath string
-		if isS3Prefix {
-			readPath = strings.TrimSuffix(req.ZipURL, "/") + "/"
-			// default output suffix
-			writePath = strings.TrimSuffix(req.ZipURL, "/") + "-output/"
+
+		// New API: prefer readS3Path/writeS3Path
+		if req.ReadS3Path != "" {
+			readPath = strings.TrimSuffix(req.ReadS3Path, "/") + "/"
+			if req.WriteS3Path != "" {
+				writePath = strings.TrimSuffix(req.WriteS3Path, "/") + "/"
+			} else {
+				// Default: write to output subdirectory in read path
+				writePath = strings.TrimSuffix(req.ReadS3Path, "/") + "/output/"
+			}
+		} else if req.ZipURL != "" {
+			// Legacy support: zipurl parameter
+			isS3Prefix := strings.HasPrefix(req.ZipURL, "s3://")
+			isHTTPZip := strings.HasPrefix(req.ZipURL, "http://") || strings.HasPrefix(req.ZipURL, "https://")
+
+			if !isS3Prefix && !isHTTPZip {
+				return nil, huma.NewError(400, "zipurl must be an s3://... prefix or a http(s) zip URL")
+			}
+
+			if isS3Prefix {
+				readPath = strings.TrimSuffix(req.ZipURL, "/") + "/"
+				writePath = strings.TrimSuffix(req.ZipURL, "/") + "-output/"
+			} else {
+				// HTTP zip - not supported for S3 read/write workflow
+				return nil, huma.NewError(400, "HTTP zip URLs not supported. Use readS3Path for S3-based processing")
+			}
 		} else {
-			// keep existing behavior for http zip
-			readPath = req.ZipURL
-			writePath = strings.TrimSuffix(req.ZipURL, "/") + "-output/"
+			return nil, huma.NewError(400, "readS3Path is required (or zipurl for legacy support)")
+		}
+
+		// Validate S3 paths
+		if !strings.HasPrefix(readPath, "s3://") {
+			return nil, huma.NewError(400, "readS3Path must be an s3:// path")
+		}
+		if !strings.HasPrefix(writePath, "s3://") {
+			return nil, huma.NewError(400, "writeS3Path must be an s3:// path")
 		}
 
 		// Create workflow config
@@ -267,12 +305,51 @@ func (a *API) registerNodeODMRoutes() {
 			projectID = "odm-project"
 		}
 
+		// Determine S3 region
+		s3Region := req.S3Region
+		if s3Region == "" {
+			s3Region = "us-east-1"
+		}
+
+		// Handle S3 credentials - always required
+		// 1. API parameters (if provided)
+		// 2. Environment variables (fallback)
+		var providedCreds *s3.S3Credentials
+		if req.S3AccessKeyID != "" && req.S3SecretAccessKey != "" {
+			providedCreds = &s3.S3Credentials{
+				AccessKeyID:     req.S3AccessKeyID,
+				SecretAccessKey: req.S3SecretAccessKey,
+				SessionToken:    req.S3SessionToken,
+			}
+		}
+
+		// Resolve credentials - always required
+		// 1. API parameters (if provided)
+		// 2. Environment variables (SCALEODM_S3_ACCESS_KEY, etc.)
+		s3Creds, err := s3.ResolveCredentials(providedCreds, true, s3Region)
+		if err != nil {
+			log.Printf("Failed to resolve S3 credentials: %v", err)
+			return nil, huma.NewError(400, "S3 credentials are required. Provide s3AccessKeyID and s3SecretAccessKey, or configure SCALEODM_S3_ACCESS_KEY and SCALEODM_S3_SECRET_KEY environment variables", err)
+		}
+
+		if s3Creds == nil {
+			return nil, huma.NewError(400, "S3 credentials are required. Provide s3AccessKeyID and s3SecretAccessKey, or configure SCALEODM_S3_ACCESS_KEY and SCALEODM_S3_SECRET_KEY environment variables")
+		}
+
+		credSource := "environment variables"
+		if providedCreds != nil {
+			credSource = "API parameters"
+		}
+		log.Printf("Using S3 credentials for job (from %s)", credSource)
+
 		wfConfig := workflows.NewDefaultODMConfig(
 			projectID,
 			readPath,
 			writePath,
 			odmFlags,
 		)
+		wfConfig.S3Region = s3Region
+		wfConfig.S3Credentials = s3Creds
 
 		// Submit workflow to Argo
 		wf, err := a.workflowClient.CreateODMWorkflow(ctx, wfConfig)
@@ -282,14 +359,17 @@ func (a *API) registerNodeODMRoutes() {
 		}
 
 		// Record metadata in database
+		// Use local cluster URL for jobs created on this instance
+		clusterURL := config.SCALEODM_CLUSTER_URL
 		_, err = a.metadataStore.CreateJob(
 			ctx,
+			clusterURL,
 			wf.Name,
 			projectID,
 			readPath,
 			writePath,
 			odmFlags,
-			"us-east-1",
+			s3Region,
 		)
 		if err != nil {
 			log.Printf("Warning: Failed to record job metadata: %v", err)
@@ -317,7 +397,7 @@ func (a *API) registerNodeODMRoutes() {
 
 		resp := &TaskListResponse{}
 		resp.Body = make([]TaskListItem, 0, len(wfList.Items))
-		
+
 		for _, wf := range wfList.Items {
 			resp.Body = append(resp.Body, TaskListItem{UUID: wf.Name})
 		}
@@ -358,7 +438,7 @@ func (a *API) registerNodeODMRoutes() {
 			Name:        wf.Name,
 			DateCreated: wf.CreationTimestamp.Unix(),
 			Status:      TaskStatus{Code: workflowToStatusCode(wf.Status.Phase)},
-			ImagesCount: 0, // We don't track this
+			ImagesCount: 0, // We don't track this yet
 			Progress:    workflowToProgress(wf.Status.Phase),
 		}
 
@@ -388,10 +468,29 @@ func (a *API) registerNodeODMRoutes() {
 		// Get console output if requested
 		if input.WithOutput > 0 {
 			var logBuilder strings.Builder
-			if err := a.workflowClient.GetWorkflowLogs(ctx, input.UUID, &logBuilder); err == nil {
-				lines := strings.Split(logBuilder.String(), "\n")
-				if input.WithOutput < len(lines) {
-					info.Output = lines[input.WithOutput:]
+			// Try to get write path from metadata for S3 fallback
+			job, _ := a.metadataStore.GetJob(ctx, input.UUID)
+			var writePath string
+			if job != nil {
+				writePath = job.WriteS3Path
+			}
+			
+			// Use S3 path if available for fallback
+			if writePath != "" {
+				s3Client := s3.GetS3Client()
+				if err := a.workflowClient.GetWorkflowLogsWithS3Path(ctx, input.UUID, writePath, s3Client, &logBuilder); err == nil {
+					lines := strings.Split(logBuilder.String(), "\n")
+					if input.WithOutput < len(lines) {
+						info.Output = lines[input.WithOutput:]
+					}
+				}
+			} else {
+				// Fallback to regular log retrieval
+				if err := a.workflowClient.GetWorkflowLogs(ctx, input.UUID, &logBuilder); err == nil {
+					lines := strings.Split(logBuilder.String(), "\n")
+					if input.WithOutput < len(lines) {
+						info.Output = lines[input.WithOutput:]
+					}
 				}
 			}
 		}
@@ -411,20 +510,32 @@ func (a *API) registerNodeODMRoutes() {
 		Token string `query:"token" doc:"Authentication token (optional)"`
 		Line  int    `query:"line" default:"0" doc:"Line number to start from"`
 	}) (*struct{ Body string }, error) {
-		// Check if workflow exists
-		_, err := a.workflowClient.GetWorkflow(ctx, input.UUID)
+		// Get job metadata to retrieve write path for S3 fallback
+		job, err := a.metadataStore.GetJob(ctx, input.UUID)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				return nil, huma.NewError(404, "Task not found")
-			}
-			return nil, huma.NewError(500, "Failed to retrieve task", err)
+			return nil, huma.NewError(500, "Failed to retrieve job metadata", err)
+		}
+		if job == nil {
+			return nil, huma.NewError(404, "Task not found")
 		}
 
-		// Get logs
+		// Get logs - try workflow first, fallback to S3 if workflow is deleted
 		var logBuilder strings.Builder
 		err = a.workflowClient.GetWorkflowLogs(ctx, input.UUID, &logBuilder)
 		if err != nil {
-			return nil, huma.NewError(500, "Failed to retrieve logs", err)
+			// If workflow not found and we have write path, try S3
+			if strings.Contains(err.Error(), "not found") && job.WriteS3Path != "" {
+				s3Client := s3.GetS3Client()
+				logContent, s3Err := s3.GetWorkflowLogsFromS3(ctx, s3Client, job.WriteS3Path)
+				if s3Err == nil {
+					logBuilder.WriteString(logContent)
+				} else {
+					// If S3 fetch also fails, return the original error
+					return nil, huma.NewError(500, "Failed to retrieve logs from workflow or S3", err)
+				}
+			} else {
+				return nil, huma.NewError(500, "Failed to retrieve logs", err)
+			}
 		}
 
 		output := logBuilder.String()
@@ -459,8 +570,8 @@ func (a *API) registerNodeODMRoutes() {
 			return nil, huma.NewError(500, "Failed to cancel task", err)
 		}
 
-		// Update metadata to canceled status
-		_ = a.metadataStore.UpdateJobStatus(ctx, input.Body.UUID, "Canceled", nil)
+		// Update metadata to canceled status (map to failed for now, could add 'canceled' to schema later)
+		_ = a.metadataStore.UpdateJobStatus(ctx, input.Body.UUID, "failed", nil)
 
 		return &Response{Success: true}, nil
 	})
@@ -548,9 +659,13 @@ func (a *API) registerNodeODMRoutes() {
 		}
 
 		// Update metadata with new workflow name
+		// Get cluster URL from original metadata (would need to add it to JobMetadata struct)
+		// For now, use local cluster URL
+		clusterURL := config.SCALEODM_CLUSTER_URL
 		_ = a.metadataStore.DeleteJob(ctx, input.Body.UUID)
 		_, _ = a.metadataStore.CreateJob(
 			ctx,
+			clusterURL,
 			wf.Name,
 			metadata.ODMProjectID,
 			metadata.ReadS3Path,
@@ -585,7 +700,7 @@ func (a *API) registerNodeODMRoutes() {
 		s3Path := fmt.Sprintf("%s/%s", metadata.WriteS3Path, input.Asset)
 		errResp := &ErrorResponse{}
 		errResp.Body.Error = fmt.Sprintf("Direct download not implemented. File available at: %s", s3Path)
-		
+
 		return errResp, nil
 	})
 }

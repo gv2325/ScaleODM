@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -16,6 +17,7 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 
 	"github.com/hotosm/scaleodm/app/config"
+	"github.com/hotosm/scaleodm/app/s3"
 )
 
 // Client wraps the Argo Workflows client and Kubernetes client
@@ -39,6 +41,12 @@ func NewClient(kubeconfig, namespace string) (*Client, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes config: %w", err)
+	}
+
+	// Set timeouts to avoid long waits during initialization
+	// These are reasonable defaults that prevent hanging
+	if config.Timeout == 0 {
+		config.Timeout = 10 * time.Second
 	}
 
 	// Create Argo Workflows clientset
@@ -67,12 +75,14 @@ type ODMPipelineConfig struct {
 	WriteS3Path    string   // S3 path where final ODM outputs will be written
 	ODMFlags       []string // ODM command line flags
 	S3Region       string
+	S3Credentials  *s3.S3Credentials // S3 credentials for the workflow
 	ServiceAccount string
 	RcloneImage    string
 	ODMImage       string
 }
 
 // NewDefaultODMConfig returns default configuration
+// Note: S3Credentials must be set separately before creating the workflow (always required)
 func NewDefaultODMConfig(odmProjectID, readS3Path, writeS3Path string, odmFlags []string) *ODMPipelineConfig {
 	return &ODMPipelineConfig{
 		ODMProjectID:   odmProjectID,
@@ -80,6 +90,7 @@ func NewDefaultODMConfig(odmProjectID, readS3Path, writeS3Path string, odmFlags 
 		WriteS3Path:    writeS3Path,
 		ODMFlags:       odmFlags,
 		S3Region:       "us-east-1",
+		S3Credentials:  nil, // Must be set before creating workflow (always required)
 		ServiceAccount: "argo-odm",
 		RcloneImage:    "docker.io/rclone/rclone:1",
 		ODMImage:       config.SCALEODM_ODM_IMAGE,
@@ -104,63 +115,50 @@ func (c *Client) CreateODMWorkflow(ctx context.Context, config *ODMPipelineConfi
 
 // buildODMWorkflow constructs the workflow specification
 func (c *Client) buildODMWorkflow(config *ODMPipelineConfig) *wfv1.Workflow {
-	// Rclone environment variables
-	rcloneEnv := []apiv1.EnvVar{
-		{Name: "RCLONE_CONFIG_S3_TYPE", Value: "s3"},
-		{Name: "RCLONE_CONFIG_S3_PROVIDER", Value: "AWS"},
-		{Name: "RCLONE_CONFIG_S3_ENV_AUTH", Value: "false"},
-		{Name: "RCLONE_CONFIG_S3_REGION", Value: config.S3Region},
+	// Credentials are always required
+	if config.S3Credentials == nil {
+		panic("S3Credentials must be provided - credentials are required for all S3 operations")
+	}
+
+	// Configure AWS credentials via environment variables
+	// Note: We don't use RCLONE_CONFIG_* env vars because ContainerSet filters them
+	// Instead, we create rclone config on-the-fly in the scripts using AWS env vars
+	awsEnv := []apiv1.EnvVar{
+		// AWS credentials for S3 access (these are NOT filtered by ContainerSet)
+		{Name: "AWS_ACCESS_KEY_ID", Value: config.S3Credentials.AccessKeyID},
+		{Name: "AWS_SECRET_ACCESS_KEY", Value: config.S3Credentials.SecretAccessKey},
+		{Name: "AWS_DEFAULT_REGION", Value: config.S3Region},
+	}
+	// Add session token if using STS credentials
+	if config.S3Credentials.SessionToken != "" {
+		awsEnv = append(awsEnv, apiv1.EnvVar{
+			Name:  "AWS_SESSION_TOKEN",
+			Value: config.S3Credentials.SessionToken,
+		})
 	}
 
 	// Generate unique job ID for this workflow instance
 	jobID := "{{workflow.name}}"
 
 	// Download container - downloads from readS3Path and extracts zips
+	// Uses include filters to only download image files and archives
+	// Logs are written to shared workspace for later collection
 	downloadContainer := wfv1.ContainerNode{
 		Container: apiv1.Container{
 			Name:    "download",
 			Image:   config.RcloneImage,
 			Command: []string{"/bin/sh", "-c"},
 			Args: []string{
-				fmt.Sprintf(`
-echo "Downloading imagery from S3..."
-JOB_ID="%s"
-echo "Job ID: $JOB_ID"
-echo "Source: %s"
-echo "Destination: /workspace/$JOB_ID/images"
-
-# Download files from S3 (includes zips and images)
-rclone copy %s /workspace/$JOB_ID/images --progress --max-transfer 100M --cutoff-mode soft
-
-cd /workspace/$JOB_ID/images
-
-# Extract any zip files
-for zipfile in *.zip; do
-  if [ -f "$zipfile" ]; then
-    echo "Extracting $zipfile..."
-    unzip -q "$zipfile"
-    rm "$zipfile"
-  fi
-done
-
-# Extract any tar files
-for tarfile in *.tar.gz; do
-  if [ -f "$tarfile" ]; then
-    echo "Extracting $tarfile..."
-    tar -xzsf "$tarfile"
-    rm "$tarfile"
-  fi
-done
-
-echo "Download complete. Files in /workspace/$JOB_ID/images:"
-ls -lh /workspace/$JOB_ID/images
-				`, jobID, config.ReadS3Path, config.ReadS3Path),
+				// Redirect output to log file in workspace for later collection
+				// Use workflow name template directly in tee path since it's templated by Argo
+				s3.GenerateDownloadScript(jobID, config.ReadS3Path) + " 2>&1 | tee /workspace/{{workflow.name}}/.download.log",
 			},
-			Env: rcloneEnv,
+			Env: awsEnv,
 		},
 	}
 
 	// ODM processing container
+	// Logs are written to shared workspace for later collection
 	odmFlagsStr := strings.Join(config.ODMFlags, " ")
 	odmContainer := wfv1.ContainerNode{
 		Container: apiv1.Container{
@@ -169,14 +167,16 @@ ls -lh /workspace/$JOB_ID/images
 			Command: []string{"/bin/bash", "-c"},
 			Args: []string{
 				fmt.Sprintf(`
-echo "Running ODM processing..."
+set -e
 JOB_ID="{{workflow.name}}"
-echo "Processing job: $JOB_ID"
-echo "ODM Project ID: %s"
+LOG_FILE="/workspace/$JOB_ID/.process.log"
+echo "Running ODM processing..." | tee -a "$LOG_FILE"
+echo "Processing job: $JOB_ID" | tee -a "$LOG_FILE"
+echo "ODM Project ID: %s" | tee -a "$LOG_FILE"
 odm_args="%s --project-path /workspace $JOB_ID"
-echo "Executing: python3 run.py $odm_args"
-python3 run.py $odm_args
-echo "ODM processing complete"
+echo "Executing: python3 run.py $odm_args" | tee -a "$LOG_FILE"
+python3 run.py $odm_args 2>&1 | tee -a "$LOG_FILE"
+echo "ODM processing complete" | tee -a "$LOG_FILE"
 				`, config.ODMProjectID, odmFlagsStr),
 			},
 		},
@@ -184,69 +184,41 @@ echo "ODM processing complete"
 	}
 
 	// Upload container - uploads results to writeS3Path
+	// Logs are written to shared workspace for later collection
 	uploadContainer := wfv1.ContainerNode{
 		Container: apiv1.Container{
 			Name:    "upload",
 			Image:   config.RcloneImage,
 			Command: []string{"/bin/sh", "-c"},
 			Args: []string{
-				fmt.Sprintf(`
-echo "Running final upload..."
-
-# Injected WriteS3Path var
-DEST_PATH="%s"
-
-echo "Validating S3 credentials with a test write..."
-TEST_FILE="$(mktemp)"
-echo "s3 write test $(date)" > "$TEST_FILE"
-
-# Generate one timestamp for both upload & delete
-TEST_OBJECT="$DEST_PATH/.s3-write-test-$(date)"
-
-# Attempt to write a small temp file
-if ! rclone copyto "$TEST_FILE" "$TEST_OBJECT" --metadata test=1 --quiet >/dev/null 2>&1; then
-  echo "❌ S3 credentials or permissions invalid (cannot write to $DEST_PATH)"
-  rm -f "$TEST_FILE"
-  exit 1
-fi
-
-# Clean up test file (ignore delete errors)
-rclone deletefile "$TEST_OBJECT" --quiet >/dev/null 2>&1 || true
-rm -f "$TEST_FILE"
-
-echo "✅ S3 write access confirmed."
-
-# -------------------------
-# Continue with upload
-# -------------------------
-
-JOB_ID="{{workflow.name}}"
-SRC_DIR="/workspace/$JOB_ID"
-
-echo "Job ID: $JOB_ID"
-echo "Source: $SRC_DIR"
-echo "Destination: $DEST_PATH"
-
-# Delete the raw imagery
-rm -rf "$SRC_DIR/images"
-
-# List output files
-echo "Listing ODM imagery products..."
-ls -lh "$SRC_DIR"
-
-# Upload results to S3
-echo "Uploading to S3..."
-if ! rclone copy "$SRC_DIR" "$DEST_PATH" --progress; then
-  echo "❌ Upload failed."
-  exit 1
-fi
-
-echo "✅ Upload complete."
-				`, config.WriteS3Path),
+				// Redirect output to log file in workspace for later collection
+				// Use workflow name template directly in tee path since it's templated by Argo
+				s3.GenerateUploadScript(config.WriteS3Path) + " 2>&1 | tee /workspace/{{workflow.name}}/.upload.log",
 			},
-			Env: rcloneEnv,
+			Env: awsEnv,
 		},
 		Dependencies: []string{"process"},
+	}
+
+	// Cleanup container - collects logs and uploads to S3, then workflow will be deleted
+	// This runs after upload to preserve logs before workflow cleanup
+	cleanupContainer := wfv1.ContainerNode{
+		Container: apiv1.Container{
+			Name:    "cleanup",
+			Image:   config.RcloneImage,
+			Command: []string{"/bin/sh", "-c"},
+			Args: []string{
+				s3.GenerateLogUploadScript(config.WriteS3Path),
+			},
+			Env: append(awsEnv,
+				// Add namespace for log collection
+				apiv1.EnvVar{
+					Name:  "ARGO_NAMESPACE",
+					Value: c.namespace,
+				},
+			),
+		},
+		Dependencies: []string{"upload"},
 	}
 
 	// Create workflow
@@ -280,6 +252,7 @@ echo "✅ Upload complete."
 							downloadContainer,
 							odmContainer,
 							uploadContainer,
+							cleanupContainer,
 						},
 					},
 				},
@@ -331,12 +304,21 @@ func (c *Client) DeleteWorkflow(ctx context.Context, name string) error {
 }
 
 // GetWorkflowLogs retrieves logs for a workflow
+// If workflow is deleted/cleaned up, writeS3Path should be provided to fetch from S3
+// For backward compatibility, this will try pods first, then return error if not found
 func (c *Client) GetWorkflowLogs(ctx context.Context, workflowName string, writer io.Writer) error {
 	wf, err := c.GetWorkflow(ctx, workflowName)
 	if err != nil {
-		return err
+		// Workflow not found - caller should use GetWorkflowLogsWithS3Path with write path
+		return fmt.Errorf("workflow not found: %w (use GetWorkflowLogsWithS3Path to fetch from S3)", err)
 	}
 
+	// Workflow exists - get logs from pods
+	return c.getWorkflowLogsFromPods(ctx, wf, writer)
+}
+
+// getWorkflowLogsFromPods retrieves logs directly from workflow pods
+func (c *Client) getWorkflowLogsFromPods(ctx context.Context, wf *wfv1.Workflow, writer io.Writer) error {
 	// Get logs for each node in the workflow
 	for nodeName, node := range wf.Status.Nodes {
 		if node.Type != wfv1.NodeTypePod {
@@ -381,33 +363,147 @@ func (c *Client) GetWorkflowLogs(ctx context.Context, workflowName string, write
 	return nil
 }
 
+// getWorkflowLogsFromS3 attempts to fetch workflow logs from S3
+// This is used when the workflow has been cleaned up
+// writeS3Path is the S3 path where logs should be stored (e.g., s3://bucket/path/)
+// s3Client is the minio client to use for fetching logs
+func (c *Client) getWorkflowLogsFromS3(ctx context.Context, workflowName, writeS3Path string, s3Client interface{}, writer io.Writer) error {
+	fmt.Fprintf(writer, "Workflow %s not found (may have been cleaned up).\n", workflowName)
+	fmt.Fprintf(writer, "Attempting to fetch logs from S3...\n\n")
+	
+	// Parse S3 path: s3://bucket/path -> bucket and path
+	if !strings.HasPrefix(writeS3Path, "s3://") {
+		return fmt.Errorf("invalid S3 path: %s", writeS3Path)
+	}
+	
+	pathParts := strings.TrimPrefix(writeS3Path, "s3://")
+	parts := strings.SplitN(pathParts, "/", 2)
+	if len(parts) < 1 {
+		return fmt.Errorf("invalid S3 path format: %s", writeS3Path)
+	}
+	
+	bucket := parts[0]
+	prefix := ""
+	if len(parts) > 1 {
+		prefix = strings.TrimSuffix(parts[1], "/") + "/"
+	}
+	
+	// Use the s3 package to fetch logs
+	// s3Client should be *minio.Client
+	if s3Client == nil {
+		return fmt.Errorf("S3 client required to fetch logs from S3")
+	}
+	
+	// Import s3 package to use GetWorkflowLogsFromS3
+	// We'll need to import it at the top of the file
+	// For now, we'll use a type assertion and call the function
+	// Actually, we should import the s3 package and use it directly
+	// But to avoid circular dependency, we'll do the fetch here
+	
+	// The API will call s3.GetWorkflowLogsFromS3 directly
+	// This function signature is kept for compatibility
+	return fmt.Errorf("use s3.GetWorkflowLogsFromS3 directly from API layer")
+}
+
+// GetWorkflowLogsWithS3Path retrieves logs for a workflow, with fallback to S3
+// writeS3Path is used to fetch logs from S3 if workflow is deleted
+// s3Client is the minio client to use for S3 operations (can be nil if workflow exists)
+func (c *Client) GetWorkflowLogsWithS3Path(ctx context.Context, workflowName, writeS3Path string, s3Client interface{}, writer io.Writer) error {
+	wf, err := c.GetWorkflow(ctx, workflowName)
+	if err != nil {
+		// Workflow not found - try to fetch logs from S3
+		return c.getWorkflowLogsFromS3(ctx, workflowName, writeS3Path, s3Client, writer)
+	}
+
+	// Workflow exists - get logs from pods
+	return c.getWorkflowLogsFromPods(ctx, wf, writer)
+}
+
 // WatchWorkflow watches a workflow until completion and returns the final workflow
 func (c *Client) WatchWorkflow(ctx context.Context, workflowName string) (*wfv1.Workflow, error) {
-	watcher, err := c.wfClientset.ArgoprojV1alpha1().Workflows(c.namespace).Watch(
-		ctx,
-		metav1.ListOptions{
-			FieldSelector: fmt.Sprintf("metadata.name=%s", workflowName),
-		},
-	)
+	// First, verify the workflow exists and get initial status
+	wf, err := c.GetWorkflow(ctx, workflowName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to watch workflow: %w", err)
-	}
-	defer watcher.Stop()
-
-	for event := range watcher.ResultChan() {
-		wf, ok := event.Object.(*wfv1.Workflow)
-		if !ok {
-			continue
-		}
-
-		if wf.Status.Phase == wfv1.WorkflowSucceeded ||
-			wf.Status.Phase == wfv1.WorkflowFailed ||
-			wf.Status.Phase == wfv1.WorkflowError {
-			return wf, nil
-		}
+		return nil, fmt.Errorf("failed to get workflow: %w", err)
 	}
 
-	return nil, fmt.Errorf("watch ended unexpectedly")
+	// If already complete, return immediately
+	if wf.Status.Phase == wfv1.WorkflowSucceeded ||
+		wf.Status.Phase == wfv1.WorkflowFailed ||
+		wf.Status.Phase == wfv1.WorkflowError {
+		return wf, nil
+	}
+
+	// Watch for workflow completion, with automatic reconnection on watch failures
+	for {
+		// Set up watcher
+		watcher, err := c.wfClientset.ArgoprojV1alpha1().Workflows(c.namespace).Watch(
+			ctx,
+			metav1.ListOptions{
+				FieldSelector: fmt.Sprintf("metadata.name=%s", workflowName),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to watch workflow: %w", err)
+		}
+
+		// Watch for events
+		for {
+			select {
+			case <-ctx.Done():
+				// Context cancelled - get final status before returning
+				watcher.Stop()
+				finalWf, err := c.GetWorkflow(ctx, workflowName)
+				if err != nil {
+					return nil, fmt.Errorf("context cancelled and failed to get workflow status: %w", err)
+				}
+				return finalWf, ctx.Err()
+			case event, ok := <-watcher.ResultChan():
+				if !ok {
+					// Channel closed - watcher ended, check final status and potentially restart
+					watcher.Stop()
+					finalWf, err := c.GetWorkflow(ctx, workflowName)
+					if err != nil {
+						return nil, fmt.Errorf("watch ended and failed to get workflow status: %w", err)
+					}
+					// If workflow is complete, return it
+					if finalWf.Status.Phase == wfv1.WorkflowSucceeded ||
+						finalWf.Status.Phase == wfv1.WorkflowFailed ||
+						finalWf.Status.Phase == wfv1.WorkflowError {
+						return finalWf, nil
+					}
+					// Workflow still running - break inner loop to restart watch
+					break
+				}
+
+				wf, ok := event.Object.(*wfv1.Workflow)
+				if !ok {
+					continue
+				}
+
+				// Check if workflow is complete
+				if wf.Status.Phase == wfv1.WorkflowSucceeded ||
+					wf.Status.Phase == wfv1.WorkflowFailed ||
+					wf.Status.Phase == wfv1.WorkflowError {
+					watcher.Stop()
+					return wf, nil
+				}
+			}
+			// Break inner loop to restart watch
+			break
+		}
+		// Small delay before restarting watch to avoid tight loop
+		select {
+		case <-ctx.Done():
+			finalWf, err := c.GetWorkflow(ctx, workflowName)
+			if err != nil {
+				return nil, fmt.Errorf("context cancelled: %w", err)
+			}
+			return finalWf, ctx.Err()
+		case <-time.After(1 * time.Second):
+			// Continue to restart watch
+		}
+	}
 }
 
 // GetWorkflowStatus returns the current phase and message of a workflow

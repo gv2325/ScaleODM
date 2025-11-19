@@ -25,15 +25,15 @@ type API struct {
 // NewAPI creates the Huma API and registers routes.
 // It returns the API object and the HTTP handler (stdlib mux) that should be served.
 func NewAPI(metadataStore *meta.Store, workflowClient *workflows.Client) (*API, http.Handler) {
-	config := huma.DefaultConfig("ScaleODM API", "1.0.0")
+	config := huma.DefaultConfig("ScaleODM API", "0.1.0")
 	config.DocsPath = "/"
 	config.OpenAPIPath = "/openapi.json"
 	config.Servers = []*huma.Server{
-		{URL: "http://localhost:8080", Description: "ScaleODM"},
+		{URL: "http://localhost:31100", Description: "ScaleODM"},
 	}
 	config.Info.Description = "Kubernetes-native auto-scaling and load balancing for OpenDroneMap."
 	config.Info.Contact = &huma.Contact{
-		Name: "Sam Woodcock",
+		Name: "HOTOSM",
 		URL:  "https://slack.hotosm.org",
 	}
 	config.Info.License = &huma.License{
@@ -64,7 +64,7 @@ func (a *API) registerGlobalMRoutes() {
 		Path:        "/health",
 		Summary:     "Health check",
 		Description: "Returns service health status",
-		Tags:        []string{"System"},
+		Tags:        []string{"system"},
 	}, func(ctx context.Context, input *struct{}) (*HealthResponse, error) {
 		if err := a.metadataStore.HealthCheck(ctx); err != nil {
 			return nil, huma.NewError(503, "Database unavailable", err)

@@ -1,12 +1,12 @@
 // REST API for job queue management
 // @title           ScaleODM Job Queue API
-// @version         1.0.0
+// @version         0.1.0
 // @description     NodeODM-compatible API for managing distributed ODM jobs via Argo Workflows
 // @contact.name    Sam Woodcock
 // @contact.url     https://slack.hotosm.org
 // @license.name    AGPL-3.0-only
 // @license.url     https://opensource.org/licenses/agpl-v3
-// @host            localhost:8080
+// @host            localhost:31100
 // @BasePath        /api/v1
 
 package main
@@ -32,14 +32,15 @@ import (
 
 // Huma CLI Options
 type Options struct {
-	Port int `help:"Port to listen on" short:"p" default:"8080"`
+	Port int `help:"Port to listen on" short:"p" default:"31100"`
 }
 
 func main() {
-	// Log to stdout for Docker
+	// Log to stdout for Docker (unbuffered)
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 
+	startTime := time.Now()
 	log.Println("Starting ScaleODM...")
 
 	// Graceful shutdown
@@ -50,31 +51,50 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Validate environment variables
+	log.Println("Validating environment variables...")
 	config.ValidateEnv()
+	log.Printf("Environment validation complete (took %v)", time.Since(startTime))
 
 	// Database connection
+	log.Println("Connecting to database...")
+	dbStart := time.Now()
 	database, err := db.NewDB(config.SCALEODM_DATABASE_URL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Close()
+	log.Printf("Database connection established (took %v)", time.Since(dbStart))
 
 	// Initialize schema
+	log.Println("Initializing database schema...")
+	schemaStart := time.Now()
 	if err := database.InitSchema(ctx); err != nil {
 		log.Fatalf("Failed to initialize schema: %v", err)
 	}
+	log.Printf("Schema initialization complete (took %v)", time.Since(schemaStart))
+
+	// Initialize local cluster record
+	log.Println("Initializing local cluster record...")
+	clusterStart := time.Now()
+	if err := database.InitLocalClusterRecord(ctx, config.SCALEODM_CLUSTER_URL); err != nil {
+		log.Fatalf("Failed to initialize local cluster record: %v", err)
+	}
+	log.Printf("Local cluster registered: %s (took %v)", config.SCALEODM_CLUSTER_URL, time.Since(clusterStart))
 
 	// Create metadata store
+	log.Println("Creating metadata store...")
+	metaStart := time.Now()
 	metadataStore := meta.NewStore(database)
-	log.Println("Metadata store initialized")
+	log.Printf("Metadata store initialized (took %v)", time.Since(metaStart))
 
 	// Initialize Argo Workflows client
 	log.Println("Initializing Argo Workflows client...")
+	k8sStart := time.Now()
 	wfClient, err := workflows.NewClient(config.KUBECONFIG_PATH, config.K8S_NAMESPACE)
 	if err != nil {
 		log.Fatalf("Failed to initialize Argo Workflows client: %v", err)
 	}
-	log.Println("Argo Workflows client ready")
+	log.Printf("Argo Workflows client ready (took %v)", time.Since(k8sStart))
 
 	// === HUMA CLI ===
 	cli := humacli.New(func(hooks humacli.Hooks, options *Options) {
