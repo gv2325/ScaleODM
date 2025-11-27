@@ -8,26 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  prep:
-    runs-on: ubuntu-latest
-    outputs:
-      repo: ${{ steps.set_repo.outputs.repo }}
-    steps:
-      - name: Lowercase GITHUB_REPOSITORY
-        id: set_repo
-        run: |
-          repo=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
-          echo "repo=$repo" >> "$GITHUB_OUTPUT"
-
   tests:
-    needs: prep
-    uses: hotosm/gh-workflows/.github/workflows/test_compose.yaml@2.0.5
+    uses: hotosm/gh-workflows/.github/workflows/just.yml@3.3.2
     with:
-      image_name: ghcr.io/${{ needs.prep.outputs.repo }}
-      build_target: build
-      tag_override: ci
-      compose_file: compose.yaml
-      compose_service: api
-      compose_command: test -timeout=2m -v ./...
-      cache_extra_imgs: |
-        "docker.io/postgis/postgis:17-3.5-alpine"
+      environment: "test"
+      command: "test"
+    secrets: inherit
