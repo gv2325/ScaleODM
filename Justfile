@@ -195,7 +195,7 @@ test-cluster-init:
       --workers 1 \
       --memory "${CONTROL_PLANE_MEMORY}" \
       --memory-workers "${WORKER_MEMORY}" \
-      --cpus 2 \
+      --cpus 1 \
       --cpus-workers 2 \
       --wait
   
