@@ -120,6 +120,20 @@ test-cluster-init:
   echo "   Control plane memory: ${CONTROL_PLANE_MEMORY}MB"
   echo ""
   
+  # Ensure br_netfilter kernel module is loaded (required for Flannel networking in Docker)
+  if ! lsmod | grep -q "^br_netfilter"; then
+      echo "📦 Loading br_netfilter kernel module..."
+      if sudo modprobe br_netfilter 2>/dev/null; then
+          echo "✓ br_netfilter module loaded"
+      else
+          echo "⚠️  Warning: Failed to load br_netfilter module"
+          echo "   This may cause issues with Kubernetes networking in Docker"
+          echo "   If cluster creation fails, ensure the module can be loaded"
+      fi
+  else
+      echo "✓ br_netfilter module already loaded"
+  fi
+  
   # Install required tools if missing
   just _install-curl
   just _install-talosctl
