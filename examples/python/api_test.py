@@ -97,7 +97,7 @@ def task_info(uuid: str) -> None:
     print(f"Body: {resp.text}")
 
 
-def wait_for_task(uuid: str, timeout: int = 600, interval: int = 10) -> None:
+def wait_for_task(uuid: str, timeout: int = 1800, interval: int = 10) -> None:
     """
     Poll /task/{uuid}/info until the task reaches a terminal state or timeout.
 

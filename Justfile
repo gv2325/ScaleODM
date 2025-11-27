@@ -160,10 +160,7 @@ test-python:
   set -euo pipefail
 
   echo "Starting API..."
-  docker compose -f compose.yaml -f compose.test.yaml up -d api
-
-  echo "Waiting for API to become healthy..."
-  docker compose -f compose.yaml -f compose.test.yaml wait api
+  docker compose up --wait --detach api
 
   echo "Running Python API test inside container..."
   docker run --rm \
@@ -184,7 +181,7 @@ test-python:
     '
   
   echo "Shutting down containers..."
-  docker compose -f compose.yaml -f compose.test.yaml down --remove-orphans
+  docker compose down --remove-orphans
 
 # Start compose services (DB, S3, API)
 # Assumes Talos cluster is already running
@@ -192,11 +189,11 @@ start:
   #!/usr/bin/env bash
   set -e
   echo "Starting API..."
-  docker compose -f compose.yaml -f compose.test.yaml run --rm -d api run main.go
+  docker compose run --rm -d api run main.go
 
 # Stop compose services
 stop:
-  docker compose -f compose.yaml -f compose.test.yaml down --remove-orphans
+  docker compose down --remove-orphans
 
 # Setup Talos cluster and start all services for development
 dev: test-cluster-init start
