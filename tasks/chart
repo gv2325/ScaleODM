@@ -104,6 +104,9 @@ dependencies:
   #!/usr/bin/env sh
   set -e
 
+  # Test k8s cluster required for this
+  just test cluster-available
+
   cd {{justfile_directory()}}/chart
   echo "📥 Updating dependencies..."
   helm dependency update

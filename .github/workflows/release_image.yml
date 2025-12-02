@@ -5,7 +5,9 @@ on:
     types: [published]
 
 permissions:
-  packages: write  # Required for nested job in image_build workflow
+  # Both required for nested job in image_build workflow
+  contents: read
+  packages: write
 
 jobs:
   prep:
