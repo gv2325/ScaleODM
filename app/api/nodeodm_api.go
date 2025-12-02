@@ -794,6 +794,11 @@ func (a *API) registerNodeODMRoutes() {
 			return nil, huma.NewError(404, "Task not found")
 		}
 
+		if metadata == nil {
+			log.Printf("GET /task/%s/download/%s: task not found in metadata store", input.UUID, input.Asset)
+			return nil, huma.NewError(404, "Task not found")
+		}
+
 		// Return error with S3 path info
 		s3Path := fmt.Sprintf("%s/%s", metadata.WriteS3Path, input.Asset)
 		errResp := &ErrorResponse{}

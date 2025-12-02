@@ -80,6 +80,10 @@ func TestE2E_CreateAndListJobs(t *testing.T) {
 	err := db.InitLocalClusterRecord(ctx, "http://localhost:31100")
 	require.NoError(t, err)
 
+	// Set up test S3 bucket
+	err = testutil.SetupTestS3Bucket(ctx, "test-bucket")
+	require.NoError(t, err, "Failed to set up test S3 bucket")
+
 	// Create multiple jobs
 	for i := 0; i < 3; i++ {
 		_, createErr := store.CreateJob(
@@ -132,6 +136,10 @@ func TestE2E_JobLifecycle(t *testing.T) {
 	// Initialize cluster (required for foreign key constraint)
 	err := db.InitLocalClusterRecord(ctx, "http://localhost:31100")
 	require.NoError(t, err)
+
+	// Set up test S3 bucket
+	err = testutil.SetupTestS3Bucket(ctx, "test-bucket")
+	require.NoError(t, err, "Failed to set up test S3 bucket")
 
 	// Create job
 	job, err := store.CreateJob(

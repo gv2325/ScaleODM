@@ -10,6 +10,7 @@ import (
 
 	"github.com/hotosm/scaleodm/app/config"
 	"github.com/hotosm/scaleodm/app/meta"
+	"github.com/hotosm/scaleodm/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,6 +90,10 @@ func TestTaskNewEndpoint(t *testing.T) {
 	err := db.InitLocalClusterRecord(ctx, clusterURL)
 	require.NoError(t, err)
 
+	// Set up test S3 bucket
+	err = testutil.SetupTestS3Bucket(ctx, "test-bucket")
+	require.NoError(t, err, "Failed to set up test S3 bucket")
+
 	// Create task request
 	request := TaskNewRequest{
 		Name:        "test-project",
@@ -96,8 +101,8 @@ func TestTaskNewEndpoint(t *testing.T) {
 		WriteS3Path: "s3://test-bucket/output/",
 		Options:      `[{"name": "fast-orthophoto", "value": true}]`,
 		S3Region:    "us-east-1",
-		S3AccessKeyID: "test-key",
-		S3SecretAccessKey: "test-secret",
+		S3AccessKeyID: testutil.TestS3AccessKey(),
+		S3SecretAccessKey: testutil.TestS3SecretKey(),
 	}
 
 	body, err := json.Marshal(request)
