@@ -144,7 +144,7 @@ start:
   #!/usr/bin/env bash
   set -e
   echo "Starting API..."
-  docker compose run --rm -d api run main.go
+  docker compose up -d
 
 # Stop compose services
 stop:
