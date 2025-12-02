@@ -2,7 +2,17 @@
 # docker compose -f compose.yaml -f compose.test.yaml run --rm api
 services:
   api:
+    # Use .test.env instead of .env to ensure tests use MinIO configuration
+    env_file: .test.env
     command: test -timeout=5m -v -tags=e2e ./...
     restart: "no"
     healthcheck:
       test: []
+  
+  s3:
+    # Ensure MinIO service uses test credentials (matching .test.env)
+    # These must match the credentials used by tests
+    # We need this override to ensure .env values don't take precedent
+    environment:
+      MINIO_ROOT_USER: odm
+      MINIO_ROOT_PASSWORD: somelongpassword
