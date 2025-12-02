@@ -585,20 +585,18 @@ func (a *API) registerNodeODMRoutes() {
 
 		// Get logs - try workflow first, fallback to S3 if workflow is deleted
 		var logBuilder strings.Builder
-		err = a.workflowClient.GetWorkflowLogs(ctx, input.UUID, &logBuilder)
-		if err != nil {
-			// If workflow not found and we have write path, try S3
-			if strings.Contains(err.Error(), "not found") && job.WriteS3Path != "" {
-				s3Client := s3.GetS3Client()
-				logContent, s3Err := s3.GetWorkflowLogsFromS3(ctx, s3Client, job.WriteS3Path)
-				if s3Err == nil {
-					logBuilder.WriteString(logContent)
-				} else {
-					// If S3 fetch also fails, return the original error
-					log.Printf("GET /task/%s/output: failed to retrieve logs from workflow or S3: %v (s3Err=%v)", input.UUID, err, s3Err)
-					return nil, huma.NewError(500, "Failed to retrieve logs from workflow or S3", err)
-				}
-			} else {
+		if job.WriteS3Path != "" {
+			// Use S3 path for fallback
+			s3Client := s3.GetS3Client()
+			err = a.workflowClient.GetWorkflowLogsWithS3Path(ctx, input.UUID, job.WriteS3Path, s3Client, &logBuilder)
+			if err != nil {
+				log.Printf("GET /task/%s/output: failed to retrieve logs from workflow or S3: %v", input.UUID, err)
+				return nil, huma.NewError(500, "Failed to retrieve logs", err)
+			}
+		} else {
+			// No S3 path available, try workflow only
+			err = a.workflowClient.GetWorkflowLogs(ctx, input.UUID, &logBuilder)
+			if err != nil {
 				log.Printf("GET /task/%s/output: failed to retrieve workflow logs: %v", input.UUID, err)
 				return nil, huma.NewError(500, "Failed to retrieve logs", err)
 			}
@@ -642,8 +640,8 @@ func (a *API) registerNodeODMRoutes() {
 			return nil, huma.NewError(500, "Failed to cancel task", err)
 		}
 
-		// Update metadata to canceled status (map to failed for now, could add 'canceled' to schema later)
-		if err := a.metadataStore.UpdateJobStatus(ctx, input.Body.UUID, "failed", nil); err != nil {
+		// Update metadata to canceled status
+		if err := a.metadataStore.UpdateJobStatus(ctx, input.Body.UUID, "canceled", nil); err != nil {
 			log.Printf("POST /task/cancel: failed to update job status for %q: %v", input.Body.UUID, err)
 		}
 
@@ -772,26 +770,26 @@ func (a *API) registerNodeODMRoutes() {
 		return &Response{Success: true}, nil
 	})
 
-	// GET /task/{uuid}/download/{asset} - Download task asset
+	// GET /task/{uuid}/download/{asset} - Download task asset (redirects to pre-signed URL)
 	huma.Register(a.api, huma.Operation{
 		OperationID: "task-uuid-download-asset-get",
 		Method:      http.MethodGet,
 		Path:        "/task/{uuid}/download/{asset}",
 		Summary:     "Download task output asset",
+		Description: "Redirects to a pre-signed URL for downloading the asset directly from S3",
 		Tags:        []string{"task"},
 	}, func(ctx context.Context, input *struct {
 		UUID  string `path:"uuid" doc:"UUID of the task"`
 		Asset string `path:"asset" doc:"Asset type (all.zip, orthophoto.tif, etc)"`
 		Token string `query:"token" doc:"Authentication token (optional)"`
-	}) (*ErrorResponse, error) {
+	}) (*struct{ Body string }, error) {
 		log.Printf("GET /task/%s/download/%s: token_provided=%t", input.UUID, input.Asset, input.Token != "")
 
-		// This would need S3 integration to actually download files
-		// For now, return the S3 path where the file should be
+		// Get job metadata to retrieve write path
 		metadata, err := a.metadataStore.GetJob(ctx, input.UUID)
 		if err != nil {
 			log.Printf("GET /task/%s/download/%s: failed to retrieve metadata: %v", input.UUID, input.Asset, err)
-			return nil, huma.NewError(404, "Task not found")
+			return nil, huma.NewError(500, "Failed to retrieve task metadata", err)
 		}
 
 		if metadata == nil {
@@ -799,14 +797,68 @@ func (a *API) registerNodeODMRoutes() {
 			return nil, huma.NewError(404, "Task not found")
 		}
 
-		// Return error with S3 path info
-		s3Path := fmt.Sprintf("%s/%s", metadata.WriteS3Path, input.Asset)
-		errResp := &ErrorResponse{}
-		errResp.Body.Error = fmt.Sprintf("Direct download not implemented. File available at: %s", s3Path)
+		if metadata.WriteS3Path == "" {
+			log.Printf("GET /task/%s/download/%s: write S3 path not available", input.UUID, input.Asset)
+			return nil, huma.NewError(400, "Write S3 path not available for this task")
+		}
 
-		log.Printf("GET /task/%s/download/%s: returning placeholder response with s3Path=%q", input.UUID, input.Asset, s3Path)
+		// Get S3 client
+		s3Client := s3.GetS3Client()
 
-		return errResp, nil
+		// Generate pre-signed URL (valid for 1 hour)
+		presignedURL, err := s3.GeneratePresignedURL(ctx, s3Client, metadata.WriteS3Path, input.Asset, 1*time.Hour)
+		if err != nil {
+			log.Printf("GET /task/%s/download/%s: failed to generate pre-signed URL: %v", input.UUID, input.Asset, err)
+			return nil, huma.NewError(404, fmt.Sprintf("File not found: %s", input.Asset), err)
+		}
+
+		log.Printf("GET /task/%s/download/%s: redirecting to pre-signed URL (expires in 1 hour)", input.UUID, input.Asset)
+
+		// Access response writer and request from humago adapter's context
+		// The humago adapter stores the response writer using a specific context key
+		// We need to access it through the adapter's internal context storage
+		type responseWriterKey struct{}
+		type requestKey struct{}
+		
+		var rw http.ResponseWriter
+		var req *http.Request
+		
+		// Try accessing through typed context keys
+		if val := ctx.Value(responseWriterKey{}); val != nil {
+			rw, _ = val.(http.ResponseWriter)
+		}
+		if val := ctx.Value(requestKey{}); val != nil {
+			req, _ = val.(*http.Request)
+		}
+		
+		// Try string-based keys (some adapters use these)
+		if rw == nil {
+			if val := ctx.Value("http.responseWriter"); val != nil {
+				rw, _ = val.(http.ResponseWriter)
+			}
+		}
+		if req == nil {
+			if val := ctx.Value("http.request"); val != nil {
+				req, _ = val.(*http.Request)
+			}
+		}
+		
+		// Try getting from http.ServerContextKey
+		if req == nil {
+			if httpReq, ok := ctx.Value(http.ServerContextKey).(*http.Request); ok && httpReq != nil {
+				req = httpReq
+			}
+		}
+		
+		if rw != nil && req != nil {
+			// Perform redirect
+			http.Redirect(rw, req, presignedURL, http.StatusFound)
+			return nil, nil
+		}
+		
+		// Fallback: Return the URL in response body if redirect not possible
+		// This provides graceful degradation - client can still get the URL
+		return &struct{ Body string }{Body: presignedURL}, nil
 	})
 }
 
@@ -846,13 +898,13 @@ func workflowToProgress(phase wfv1.WorkflowPhase) int {
 // stored job status.
 func jobStatusToProgress(status string) int {
 	switch strings.ToLower(status) {
-	case "pending", "claimed":
+	case "queued", "claimed": // 'claimed' is internal state, same progress as queued
 		return 0
 	case "running":
 		return 50
 	case "completed":
 		return 100
-	case "failed":
+	case "failed", "canceled":
 		return 0
 	default:
 		return 0
@@ -861,9 +913,11 @@ func jobStatusToProgress(status string) int {
 
 // jobStatusToStatusCode maps internal job status strings stored in the metadata
 // database to NodeODM-compatible status codes.
+// Database statuses align with NodeODM labels: 'queued', 'running', 'completed', 'failed', 'canceled'
+// Note: 'claimed' is an internal state for job queue management that maps to QUEUED (10)
 func jobStatusToStatusCode(status string) int {
 	switch strings.ToLower(status) {
-	case "pending", "claimed":
+	case "queued", "claimed": // 'claimed' is internal state, maps to QUEUED
 		return StatusCodeQueued
 	case "running":
 		return StatusCodeRunning
@@ -871,6 +925,8 @@ func jobStatusToStatusCode(status string) int {
 		return StatusCodeCompleted
 	case "failed":
 		return StatusCodeFailed
+	case "canceled":
+		return StatusCodeCanceled
 	default:
 		return StatusCodeQueued
 	}

@@ -38,7 +38,7 @@ func TestCreateJob(t *testing.T) {
 	assert.Equal(t, "s3://bucket/images/", job.ReadS3Path)
 	assert.Equal(t, "s3://bucket/output/", job.WriteS3Path)
 	assert.Equal(t, "us-east-1", job.S3Region)
-	assert.Equal(t, "pending", job.JobStatus)
+	assert.Equal(t, "queued", job.JobStatus)
 	assert.NotZero(t, job.ID)
 	assert.False(t, job.CreatedAt.IsZero())
 }
@@ -181,12 +181,12 @@ func TestMapArgoPhaseToJobStatus(t *testing.T) {
 		phase    string
 		expected string
 	}{
-		{"Pending", "Pending", "pending"},
+		{"Pending", "Pending", "queued"},
 		{"Running", "Running", "running"},
 		{"Succeeded", "Succeeded", "completed"},
 		{"Failed", "Failed", "failed"},
 		{"Error", "Error", "failed"},
-		{"Unknown", "Unknown", "pending"},
+		{"Unknown", "Unknown", "queued"},
 	}
 
 	for _, tt := range tests {

@@ -31,7 +31,7 @@ var K8S_NAMESPACE = cmp.Or(
 // to create temporary credentials for STS
 var SCALEODM_S3_ENDPOINT = cmp.Or(
 	os.Getenv("SCALEODM_S3_ENDPOINT"),
-	"",
+	"s3.amazonaws.com",
 )
 var SCALEODM_S3_ACCESS_KEY = cmp.Or(
 	os.Getenv("SCALEODM_S3_ACCESS_KEY"),

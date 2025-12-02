@@ -11,6 +11,9 @@ networks:
   net:
     name: scaleodm
 
+volumes:
+  db_data:
+
 services:
   api:
     image: "ghcr.io/hotosm/scaleodm:${TAG_OVERRIDE:-ci}"
@@ -59,6 +62,8 @@ services:
       - POSTGRES_USER=odm
       - POSTGRES_PASSWORD=odm
       - POSTGRES_DB=scaleodm
+    volumes:
+      - db_data:/var/lib/postgresql/data/
     ports:
       - "31101:5432"
     networks:

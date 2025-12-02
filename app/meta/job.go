@@ -147,7 +147,8 @@ func (s *Store) GetJob(ctx context.Context, workflowName string) (*JobMetadata, 
 }
 
 // UpdateJobStatus updates the job status from workflow phase
-// status should be one of: 'pending', 'claimed', 'running', 'failed', 'completed'
+// status should be one of: 'queued', 'claimed', 'running', 'failed', 'completed', 'canceled'
+// Note: 'claimed' is an internal state for job queue management (maps to QUEUED/10 in API)
 func (s *Store) UpdateJobStatus(ctx context.Context, workflowName, status string, errorMsg *string) error {
 	query := `
 		UPDATE scaleodm_job_metadata
@@ -157,7 +158,7 @@ func (s *Store) UpdateJobStatus(ctx context.Context, workflowName, status string
 		        ELSE started_at
 		    END,
 		    completed_at = CASE 
-		        WHEN $2 IN ('completed', 'failed') AND completed_at IS NULL THEN NOW()
+		        WHEN $2 IN ('completed', 'failed', 'canceled') AND completed_at IS NULL THEN NOW()
 		        ELSE completed_at
 		    END,
 		    error_message = $3
@@ -185,10 +186,11 @@ func (s *Store) UpdateJobStatus(ctx context.Context, workflowName, status string
 }
 
 // MapArgoPhaseToJobStatus converts Argo workflow phase to database job status
+// Returns NodeODM-aligned status labels: 'queued', 'running', 'completed', 'failed', 'canceled'
 func MapArgoPhaseToJobStatus(phase string) string {
 	switch phase {
 	case "Pending":
-		return "pending"
+		return "queued"
 	case "Running":
 		return "running"
 	case "Succeeded":
@@ -196,7 +198,7 @@ func MapArgoPhaseToJobStatus(phase string) string {
 	case "Failed", "Error":
 		return "failed"
 	default:
-		return "pending"
+		return "queued"
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -84,6 +85,22 @@ func SetupTestS3Bucket(ctx context.Context, bucketName string) error {
 	endpoint := TestS3Endpoint()
 	accessKey := TestS3AccessKey()
 	secretKey := TestS3SecretKey()
+
+	// Parse and clean endpoint - MinIO client doesn't allow paths, query params, or fragments
+	// Strip protocol if present
+	if strings.HasPrefix(endpoint, "http://") {
+		endpoint = strings.TrimPrefix(endpoint, "http://")
+	} else if strings.HasPrefix(endpoint, "https://") {
+		endpoint = strings.TrimPrefix(endpoint, "https://")
+	}
+
+	// Strip any path, query, or fragment components
+	if idx := strings.IndexAny(endpoint, "/?#"); idx != -1 {
+		endpoint = endpoint[:idx]
+	}
+
+	// Remove trailing slash if present
+	endpoint = strings.TrimSuffix(endpoint, "/")
 
 	// Try HTTP first (typical for local MinIO), then HTTPS
 	for _, secure := range []bool{false, true} {

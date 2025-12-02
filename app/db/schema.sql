@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS scaleodm_job_metadata (
     odm_project_id TEXT NOT NULL,
     job_type TEXT DEFAULT 'standard' CONSTRAINT job_type_check
         CHECK (job_type IN ('standard', 'splitmerge')),
-    job_status TEXT DEFAULT 'pending' CONSTRAINT job_queue_status_check
-        CHECK (job_status IN ('pending', 'claimed', 'running', 'failed', 'completed')),
+    job_status TEXT DEFAULT 'queued' CONSTRAINT job_queue_status_check
+        CHECK (job_status IN ('queued', 'claimed', 'running', 'failed', 'completed', 'canceled')),
     read_s3_path TEXT NOT NULL,
     write_s3_path TEXT NOT NULL,
     odm_flags JSONB,
