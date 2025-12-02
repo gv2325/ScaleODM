@@ -89,16 +89,19 @@ func TestGetClusterCapacity(t *testing.T) {
 	store := NewStore(db)
 	ctx := context.Background()
 
+	// Use a consistent cluster URL for the test
+	clusterURL := "http://localhost:31100"
+
 	// Initialize cluster with max 10 jobs
-	err := db.InitLocalClusterRecord(ctx, "http://localhost:31100")
+	err := db.InitLocalClusterRecord(ctx, clusterURL)
 	require.NoError(t, err)
 
 	// Update cluster details
-	err = store.UpdateClusterDetails(ctx, "http://localhost:31100", 10, 10)
+	err = store.UpdateClusterDetails(ctx, clusterURL, 10, 10)
 	require.NoError(t, err)
 
 	// Get capacity (should be 0 active jobs)
-	maxJobs, activeJobs, err := store.GetClusterCapacity(ctx, "http://localhost:31100")
+	maxJobs, activeJobs, err := store.GetClusterCapacity(ctx, clusterURL)
 	require.NoError(t, err)
 	assert.Equal(t, 10, maxJobs)
 	assert.Equal(t, 0, activeJobs)
@@ -106,7 +109,7 @@ func TestGetClusterCapacity(t *testing.T) {
 	// Create some running jobs
 	_, err = store.CreateJob(
 		ctx,
-		"http://localhost:31100",
+		clusterURL,
 		"test-workflow-1",
 		"test-project",
 		"s3://bucket/images/",
@@ -121,7 +124,7 @@ func TestGetClusterCapacity(t *testing.T) {
 
 	_, err = store.CreateJob(
 		ctx,
-		"http://localhost:31100",
+		clusterURL,
 		"test-workflow-2",
 		"test-project",
 		"s3://bucket/images/",
@@ -135,7 +138,7 @@ func TestGetClusterCapacity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get capacity again (should be 2 active jobs)
-	maxJobs, activeJobs, err = store.GetClusterCapacity(ctx, "http://localhost:31100")
+	maxJobs, activeJobs, err = store.GetClusterCapacity(ctx, clusterURL)
 	require.NoError(t, err)
 	assert.Equal(t, 10, maxJobs)
 	assert.Equal(t, 2, activeJobs)
@@ -143,7 +146,7 @@ func TestGetClusterCapacity(t *testing.T) {
 	// Create a completed job (should not count)
 	_, err = store.CreateJob(
 		ctx,
-		"http://localhost:31100",
+		clusterURL,
 		"test-workflow-3",
 		"test-project",
 		"s3://bucket/images/",
@@ -157,7 +160,7 @@ func TestGetClusterCapacity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get capacity again (should still be 2 active jobs)
-	maxJobs, activeJobs, err = store.GetClusterCapacity(ctx, "http://localhost:31100")
+	maxJobs, activeJobs, err = store.GetClusterCapacity(ctx, clusterURL)
 	require.NoError(t, err)
 	assert.Equal(t, 10, maxJobs)
 	assert.Equal(t, 2, activeJobs)

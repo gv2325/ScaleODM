@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/hotosm/scaleodm/app/config"
 	"github.com/hotosm/scaleodm/app/meta"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,9 +83,10 @@ func TestTaskNewEndpoint(t *testing.T) {
 	
 	_, handler := NewAPI(metadataStore, wfClient)
 
-	// Initialize cluster
+	// Initialize cluster with the same URL that the API will use
 	ctx := context.Background()
-	err := db.InitLocalClusterRecord(ctx, "http://localhost:31100")
+	clusterURL := config.SCALEODM_CLUSTER_URL
+	err := db.InitLocalClusterRecord(ctx, clusterURL)
 	require.NoError(t, err)
 
 	// Create task request
@@ -156,13 +158,14 @@ func TestTaskInfoEndpoint(t *testing.T) {
 
 	// Create job metadata (workflow may or may not exist in cluster)
 	ctx := context.Background()
-	err := db.InitLocalClusterRecord(ctx, "http://localhost:31100")
+	clusterURL := config.SCALEODM_CLUSTER_URL
+	err := db.InitLocalClusterRecord(ctx, clusterURL)
 	require.NoError(t, err)
 
 	workflowName := "test-workflow-info"
 	_, err = metadataStore.CreateJob(
 		ctx,
-		"http://localhost:31100",
+		clusterURL,
 		workflowName,
 		"test-project",
 		"s3://bucket/images/",
@@ -182,10 +185,17 @@ func TestTaskInfoEndpoint(t *testing.T) {
 	// Should return OK even if workflow doesn't exist in cluster (metadata exists)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Huma returns the body content directly, not wrapped in a Body field
+	// Huma may return the body wrapped in a Body field or directly
 	var response TaskInfo
-	err = json.Unmarshal(w.Body.Bytes(), &response)
-	require.NoError(t, err)
+	var wrappedResponse TaskInfoResponse
+	err = json.Unmarshal(w.Body.Bytes(), &wrappedResponse)
+	if err == nil && wrappedResponse.Body.UUID != "" {
+		response = wrappedResponse.Body
+	} else {
+		// Try direct unmarshaling
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+	}
 	assert.Equal(t, workflowName, response.UUID)
 }
 
